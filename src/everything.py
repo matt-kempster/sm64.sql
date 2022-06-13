@@ -2,8 +2,9 @@ from asyncore import write
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
-from macro_object import SM64MacroObject, try_parse_macro_object
 
+from macro_object import SM64MacroObject, try_parse_macro_object
+from macro_preset import SM64MacroPreset, parse_macro_presets
 from model import SM64Model, parse_model_ids
 from object import SM64Object, try_parse_object
 
@@ -13,11 +14,12 @@ class SM64Everything:
     sm64_objects: List[SM64Object]
     sm64_macro_objects: List[SM64MacroObject]
     sm64_models: List[SM64Model]
+    sm64_macro_presets: List[SM64MacroPreset]
 
 
 def parse_levelscript(path: Path) -> List[SM64Object]:
     script = path.read_text().splitlines()
-    level_name = path.name
+    level_name = path.parent.name
     sm64_objects = []
     for line in script:
         line = line.strip()
@@ -56,4 +58,10 @@ def parse_repo(repo: Path) -> SM64Everything:
             sm64_macro_objects.extend(sm64_objects_level[1])
     model_ids_file = repo / "include" / "model_ids.h"
     sm64_models = parse_model_ids(model_ids_file)
-    return SM64Everything(sm64_objects, sm64_macro_objects, sm64_models)
+    sm64_macro_presets = parse_macro_presets(
+        repo / "include" / "macro_presets.h",
+        repo / "include" / "macro_preset_names.h",
+    )
+    return SM64Everything(
+        sm64_objects, sm64_macro_objects, sm64_models, sm64_macro_presets
+    )

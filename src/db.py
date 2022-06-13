@@ -3,6 +3,7 @@ import sqlite3
 from typing import Any, Iterable, Optional, Tuple
 from everything import SM64Everything
 from macro_object import SM64MacroObject
+from macro_preset import SM64MacroPreset
 
 from model import SM64Model
 from object import SM64Object
@@ -75,6 +76,11 @@ def write_to_db(conn: sqlite3.Connection, everything: SM64Everything) -> None:
         "macro_object",
         dataclasses.fields(SM64MacroObject),
     )
+    create_table(
+        cursor,
+        "macro_preset",
+        dataclasses.fields(SM64MacroPreset),
+    )
 
     insert_values(
         cursor,
@@ -94,4 +100,11 @@ def write_to_db(conn: sqlite3.Connection, everything: SM64Everything) -> None:
         dataclasses.fields(SM64MacroObject),
         everything.sm64_macro_objects,
     )
+    insert_values(
+        cursor,
+        "macro_preset",
+        dataclasses.fields(SM64MacroPreset),
+        everything.sm64_macro_presets,
+    )
+
     conn.commit()

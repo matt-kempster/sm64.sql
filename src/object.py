@@ -43,7 +43,7 @@ def try_parse_object(line: str, level: str) -> Optional[SM64Object]:
         has_acts = True
         line = line.replace("OBJECT_WITH_ACTS(", "").replace("),", "")
     else:
-        line = line.replace("OBJECT(", "").replace("),", "")
+        line = line.replace("OBJECT", "").replace("(", "").replace("),", "")
     line_parts = [strip_comments_and_whitespace(part) for part in line.split(",")]
     if len(line_parts) != (10 if has_acts else 9):
         raise ValueError(f"Invalid number of parts ({len(line_parts)}) in line: {line}")
