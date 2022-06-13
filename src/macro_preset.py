@@ -9,7 +9,7 @@ from parse_utils import strip_comments_and_whitespace
 class SM64MacroPreset:
     macro_name: str
     behavior: str
-    model: str
+    model_name: str
     # TODO: beh params
 
 
@@ -54,7 +54,7 @@ def parse_macro_presets(
             SM64MacroPreset(
                 macro_name=macro_preset_names[enum_index],
                 behavior=line_parts[0],
-                model=line_parts[1],
+                model_name=line_parts[1],
                 # TODO: beh params
             )
         )
