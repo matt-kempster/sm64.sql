@@ -10,6 +10,7 @@ from sm64_sql.macro_preset import SM64MacroPreset
 from sm64_sql.model import SM64Model
 from sm64_sql.object import SM64Object
 from sm64_sql.sequence import SM64Sequence
+from sm64_sql.special import SM64SpecialObject, SM64SpecialPreset
 
 
 def _everything():
@@ -76,6 +77,27 @@ def _everything():
                 left_offset=30,
                 width=200,
                 text="Hello there.",
+            )
+        ],
+        sm64_special_presets=[
+            SM64SpecialPreset(
+                preset_name="special_wooden_door",
+                preset_id=126,
+                preset_type="SPTYPE_YROT_NO_PARAMS",
+                default_param=0,
+                model_name="MODEL_CASTLE_WOODEN_DOOR_UNUSED",
+                behavior="bhvDoor",
+            )
+        ],
+        sm64_special_objects=[
+            SM64SpecialObject(
+                preset_name="special_wooden_door",
+                level="hmc",
+                area=1,
+                pos_x=922,
+                pos_y=-4689,
+                pos_z=2330,
+                yaw=192,
             )
         ],
     )

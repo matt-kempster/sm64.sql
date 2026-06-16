@@ -17,6 +17,11 @@ def strip_comments_and_whitespace(line: str) -> str:
     return strip_block_comments(line).strip()
 
 
+def strip_comments(line: str) -> str:
+    """Remove block comments, a trailing ``//`` line comment, and whitespace."""
+    return strip_block_comments(line).split("//")[0].strip()
+
+
 def split_top_level(text: str, separator: str = ",") -> List[str]:
     """Split ``text`` on ``separator``, ignoring separators nested in brackets.
 

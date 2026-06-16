@@ -36,6 +36,16 @@ def test_parse_repo_finds_entities(everything):
     assert len(everything.sm64_courses) > 0
     assert len(everything.sm64_sequences) > 0
     assert len(everything.sm64_dialogs) > 0
+    assert len(everything.sm64_special_presets) > 0
+    assert len(everything.sm64_special_objects) > 0
+
+
+def test_special_objects_reference_known_presets(everything):
+    preset_names = {p.preset_name for p in everything.sm64_special_presets}
+    used = {o.preset_name for o in everything.sm64_special_objects}
+    assert used <= preset_names
+    # Special objects are tagged with a real (1-based) area.
+    assert all(o.area >= 1 for o in everything.sm64_special_objects)
 
 
 def test_dialogs_have_text(everything):
