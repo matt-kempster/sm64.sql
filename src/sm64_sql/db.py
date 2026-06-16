@@ -1,11 +1,8 @@
 import dataclasses
 import sqlite3
 from typing import Any, Iterable, Optional, Tuple
-from sm64_sql.everything import SM64Everything
-from sm64_sql.macro_object import SM64MacroObject
-from sm64_sql.macro_preset import SM64MacroPreset
-from sm64_sql.model import SM64Model
-from sm64_sql.object import SM64Object
+
+from sm64_sql.everything import ENTITY_TABLES, SM64Everything
 
 
 def get_sql_type(python_type: str) -> str:
@@ -63,50 +60,13 @@ def insert_values(
 
 def write_to_db(conn: sqlite3.Connection, everything: SM64Everything) -> None:
     cursor = conn.cursor()
-    create_table(
-        cursor,
-        "object",
-        dataclasses.fields(SM64Object),
-    )
-    create_table(
-        cursor,
-        "model",
-        dataclasses.fields(SM64Model),
-    )
-    create_table(
-        cursor,
-        "macro_object",
-        dataclasses.fields(SM64MacroObject),
-    )
-    create_table(
-        cursor,
-        "macro_preset",
-        dataclasses.fields(SM64MacroPreset),
-    )
-
-    insert_values(
-        cursor,
-        "object",
-        dataclasses.fields(SM64Object),
-        everything.sm64_objects,
-    )
-    insert_values(
-        cursor,
-        "model",
-        dataclasses.fields(SM64Model),
-        everything.sm64_models,
-    )
-    insert_values(
-        cursor,
-        "macro_object",
-        dataclasses.fields(SM64MacroObject),
-        everything.sm64_macro_objects,
-    )
-    insert_values(
-        cursor,
-        "macro_preset",
-        dataclasses.fields(SM64MacroPreset),
-        everything.sm64_macro_presets,
-    )
-
+    for table_name, row_type, attr in ENTITY_TABLES:
+        create_table(cursor, table_name, dataclasses.fields(row_type))
+    for table_name, row_type, attr in ENTITY_TABLES:
+        insert_values(
+            cursor,
+            table_name,
+            dataclasses.fields(row_type),
+            getattr(everything, attr),
+        )
     conn.commit()

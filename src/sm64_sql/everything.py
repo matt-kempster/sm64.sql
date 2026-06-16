@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, List, Tuple, Type
 
 from sm64_sql.macro_object import SM64MacroObject, try_parse_macro_object
 from sm64_sql.macro_preset import SM64MacroPreset, parse_macro_presets
@@ -14,6 +14,18 @@ class SM64Everything:
     sm64_macro_objects: List[SM64MacroObject]
     sm64_models: List[SM64Model]
     sm64_macro_presets: List[SM64MacroPreset]
+
+
+# Each entry maps a SQL table to the dataclass describing its columns and the
+# SM64Everything attribute holding its rows. db.write_to_db iterates this, so a
+# new entity type only needs: a dataclass, a field on SM64Everything, the parse
+# call in parse_repo, and one row here.
+ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
+    ("object", SM64Object, "sm64_objects"),
+    ("macro_object", SM64MacroObject, "sm64_macro_objects"),
+    ("model", SM64Model, "sm64_models"),
+    ("macro_preset", SM64MacroPreset, "sm64_macro_presets"),
+]
 
 
 def parse_levelscript(path: Path) -> List[SM64Object]:
@@ -69,5 +81,8 @@ def parse_repo(repo: Path) -> SM64Everything:
         macro_preset_names_file,
     )
     return SM64Everything(
-        sm64_objects, sm64_macro_objects, sm64_models, sm64_macro_presets
+        sm64_objects=sm64_objects,
+        sm64_macro_objects=sm64_macro_objects,
+        sm64_models=sm64_models,
+        sm64_macro_presets=sm64_macro_presets,
     )
