@@ -1,5 +1,6 @@
 from sm64_sql.parse_utils import (
     extract_macro_args,
+    parse_c_enum,
     split_top_level,
     strip_block_comments,
     strip_comments_and_whitespace,
@@ -64,3 +65,31 @@ def test_extract_macro_args_requires_exact_macro_name():
 
 def test_extract_macro_args_returns_none_for_other_lines():
     assert extract_macro_args("RETURN(),", "OBJECT") is None
+
+
+def test_parse_c_enum_auto_increment():
+    text = "enum E {\n    A,\n    B,\n    C\n};\n"
+    assert parse_c_enum(text, "E") == [("A", 0), ("B", 1), ("C", 2)]
+
+
+def test_parse_c_enum_explicit_values_and_references():
+    text = (
+        "enum E {\n"
+        "    NONE = -1,\n"  # negative, then auto-increment continues from it
+        "    ZERO,\n"  # 0
+        "    HEX = 0x65,\n"  # explicit hex
+        "    NEXT,\n"  # 0x66
+        "    ALIAS = ZERO,\n"  # reference to an earlier member
+        "};\n"
+    )
+    values = dict(parse_c_enum(text, "E"))
+    assert values["NONE"] == -1
+    assert values["ZERO"] == 0
+    assert values["HEX"] == 0x65
+    assert values["NEXT"] == 0x66
+    assert values["ALIAS"] == 0
+
+
+def test_parse_c_enum_ignores_other_enums():
+    text = "enum Other {\n X\n};\nenum Wanted {\n Y\n};\n"
+    assert parse_c_enum(text, "Wanted") == [("Y", 0)]

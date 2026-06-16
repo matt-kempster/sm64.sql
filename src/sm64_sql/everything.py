@@ -8,6 +8,7 @@ from sm64_sql.macro_object import SM64MacroObject, try_parse_macro_object
 from sm64_sql.macro_preset import SM64MacroPreset, parse_macro_presets
 from sm64_sql.model import SM64Model, parse_model_ids
 from sm64_sql.object import SM64Object, try_parse_object
+from sm64_sql.sequence import SM64Sequence, parse_sequences
 
 
 @dataclass
@@ -18,6 +19,7 @@ class SM64Everything:
     sm64_macro_presets: List[SM64MacroPreset]
     sm64_levels: List[SM64Level]
     sm64_courses: List[SM64Course]
+    sm64_sequences: List[SM64Sequence]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -31,6 +33,7 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("macro_preset", SM64MacroPreset, "sm64_macro_presets"),
     ("level", SM64Level, "sm64_levels"),
     ("course", SM64Course, "sm64_courses"),
+    ("sequence", SM64Sequence, "sm64_sequences"),
 ]
 
 
@@ -88,6 +91,7 @@ def parse_repo(repo: Path) -> SM64Everything:
     )
     sm64_levels = parse_levels(repo / "levels" / "level_defines.h")
     sm64_courses = parse_courses(repo / "levels" / "course_defines.h")
+    sm64_sequences = parse_sequences(repo / "include" / "seq_ids.h")
     return SM64Everything(
         sm64_objects=sm64_objects,
         sm64_macro_objects=sm64_macro_objects,
@@ -95,4 +99,5 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_macro_presets=sm64_macro_presets,
         sm64_levels=sm64_levels,
         sm64_courses=sm64_courses,
+        sm64_sequences=sm64_sequences,
     )

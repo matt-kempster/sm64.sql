@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 def strip_block_comments(line: str) -> str:
@@ -42,6 +42,61 @@ def split_top_level(text: str, separator: str = ",") -> List[str]:
             current += char
     parts.append(current)
     return parts
+
+
+def _eval_enum_value(expr: str, seen: Dict[str, int]) -> int:
+    expr = expr.strip()
+    try:
+        # int(expr, 0) understands decimal, 0x hex, and a leading minus sign.
+        return int(expr, 0)
+    except ValueError:
+        pass
+    if expr in seen:
+        return seen[expr]
+    raise ValueError(f"Cannot evaluate enum value: {expr!r}")
+
+
+def parse_c_enum(text: str, enum_name: str) -> List[Tuple[str, int]]:
+    """Parse ``enum <enum_name> { ... }`` into ``(name, value)`` pairs.
+
+    Values auto-increment from 0 like C enums do, honouring explicit ``= N``
+    assignments (decimal, hex, negative, or a reference to an earlier
+    enumerator). Sentinel entries such as a trailing ``*_COUNT`` are returned
+    too; callers filter what they do not want.
+    """
+    entries: List[Tuple[str, int]] = []
+    seen: Dict[str, int] = {}
+    within = False
+    value = 0
+    for raw in text.splitlines():
+        line = strip_block_comments(raw).split("//")[0].strip()
+        if not within:
+            rest = (
+                line[len("enum " + enum_name) :]
+                if line.startswith("enum " + enum_name)
+                else None
+            )
+            if rest is not None and (rest == "" or rest[0] in " \t{"):
+                within = True
+            continue
+        if line.startswith("}"):
+            break
+        for token in line.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            if "=" in token:
+                name, _, expr = token.partition("=")
+                name = name.strip()
+                value = _eval_enum_value(expr, seen)
+            else:
+                name = token
+            if not name.isidentifier():
+                continue
+            entries.append((name, value))
+            seen[name] = value
+            value += 1
+    return entries
 
 
 def extract_macro_args(line: str, macro_name: str) -> Optional[List[str]]:

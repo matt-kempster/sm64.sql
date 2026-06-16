@@ -34,6 +34,7 @@ def test_parse_repo_finds_entities(everything):
     assert len(everything.sm64_macro_presets) > 0
     assert len(everything.sm64_levels) > 0
     assert len(everything.sm64_courses) > 0
+    assert len(everything.sm64_sequences) > 0
 
 
 def test_levels_reference_known_courses(everything):

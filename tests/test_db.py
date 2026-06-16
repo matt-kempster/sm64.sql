@@ -8,6 +8,7 @@ from sm64_sql.macro_object import SM64MacroObject
 from sm64_sql.macro_preset import SM64MacroPreset
 from sm64_sql.model import SM64Model
 from sm64_sql.object import SM64Object
+from sm64_sql.sequence import SM64Sequence
 
 
 def _everything():
@@ -65,6 +66,7 @@ def _everything():
                 is_bonus=False,
             )
         ],
+        sm64_sequences=[SM64Sequence(seq_name="SEQ_LEVEL_GRASS", seq_id=0x03)],
     )
 
 
