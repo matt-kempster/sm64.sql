@@ -32,6 +32,15 @@ def test_parse_repo_finds_entities(everything):
     assert len(everything.sm64_macro_objects) > 0
     assert len(everything.sm64_models) > 0
     assert len(everything.sm64_macro_presets) > 0
+    assert len(everything.sm64_levels) > 0
+
+
+def test_levels_have_folders_matching_object_levels(everything):
+    folders = {lvl.folder for lvl in everything.sm64_levels if not lvl.is_stub}
+    object_levels = {obj.level for obj in everything.sm64_objects}
+    # The vast majority of placed-object "levels" are real level folders.
+    assert "bbh" in folders
+    assert object_levels & folders
 
 
 def test_model_ids_are_unique_names(everything):

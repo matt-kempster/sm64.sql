@@ -2,6 +2,7 @@ import sqlite3
 
 from sm64_sql.db import write_to_db
 from sm64_sql.everything import SM64Everything
+from sm64_sql.level import SM64Level
 from sm64_sql.macro_object import SM64MacroObject
 from sm64_sql.macro_preset import SM64MacroPreset
 from sm64_sql.model import SM64Model
@@ -46,6 +47,15 @@ def _everything():
                 model_name="MODEL_GOOMBA",
             )
         ],
+        sm64_levels=[
+            SM64Level(
+                level_name="LEVEL_BOB",
+                course_name="COURSE_BOB",
+                folder="bob",
+                internal_name="BATTLE FIELD",
+                is_stub=False,
+            )
+        ],
     )
 
 
@@ -71,4 +81,10 @@ def test_write_to_db_round_trip():
         "JOIN model m ON o.model_name = m.model_name"
     ).fetchone()
     assert joined == ("MODEL_GOOMBA", 0x54)
+
+    # Objects join to the level table on the folder name.
+    level_join = cur.execute(
+        "SELECT l.internal_name FROM object o " "JOIN level l ON o.level = l.folder"
+    ).fetchone()
+    assert level_join == ("BATTLE FIELD",)
     conn.close()

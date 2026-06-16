@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Tuple, Type
 
+from sm64_sql.level import SM64Level, parse_levels
 from sm64_sql.macro_object import SM64MacroObject, try_parse_macro_object
 from sm64_sql.macro_preset import SM64MacroPreset, parse_macro_presets
 from sm64_sql.model import SM64Model, parse_model_ids
@@ -14,6 +15,7 @@ class SM64Everything:
     sm64_macro_objects: List[SM64MacroObject]
     sm64_models: List[SM64Model]
     sm64_macro_presets: List[SM64MacroPreset]
+    sm64_levels: List[SM64Level]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -25,6 +27,7 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("macro_object", SM64MacroObject, "sm64_macro_objects"),
     ("model", SM64Model, "sm64_models"),
     ("macro_preset", SM64MacroPreset, "sm64_macro_presets"),
+    ("level", SM64Level, "sm64_levels"),
 ]
 
 
@@ -80,9 +83,11 @@ def parse_repo(repo: Path) -> SM64Everything:
         macro_presets_file,
         macro_preset_names_file,
     )
+    sm64_levels = parse_levels(repo / "levels" / "level_defines.h")
     return SM64Everything(
         sm64_objects=sm64_objects,
         sm64_macro_objects=sm64_macro_objects,
         sm64_models=sm64_models,
         sm64_macro_presets=sm64_macro_presets,
+        sm64_levels=sm64_levels,
     )
