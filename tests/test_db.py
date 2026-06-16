@@ -92,6 +92,7 @@ def _everything():
         sm64_special_objects=[
             SM64SpecialObject(
                 preset_name="special_wooden_door",
+                preset_id=126,
                 level="hmc",
                 area=1,
                 pos_x=922,

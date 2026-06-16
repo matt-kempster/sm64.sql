@@ -41,9 +41,11 @@ def test_parse_repo_finds_entities(everything):
 
 
 def test_special_objects_reference_known_presets(everything):
-    preset_names = {p.preset_name for p in everything.sm64_special_presets}
-    used = {o.preset_name for o in everything.sm64_special_objects}
-    assert used <= preset_names
+    # Join by id (not name): some placements use enum aliases like
+    # special_haunted_door that have no array row of their own.
+    preset_ids = {p.preset_id for p in everything.sm64_special_presets}
+    used = {o.preset_id for o in everything.sm64_special_objects}
+    assert used <= preset_ids
     # Special objects are tagged with a real (1-based) area.
     assert all(o.area >= 1 for o in everything.sm64_special_objects)
 

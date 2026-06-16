@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Tuple, Type
+from typing import Any, Dict, List, Tuple, Type
 
 from sm64_sql.course import SM64Course, parse_courses
 from sm64_sql.dialog import SM64Dialog, parse_dialogs
@@ -9,6 +9,7 @@ from sm64_sql.macro_object import SM64MacroObject, try_parse_macro_object
 from sm64_sql.macro_preset import SM64MacroPreset, parse_macro_presets
 from sm64_sql.model import SM64Model, parse_model_ids
 from sm64_sql.object import SM64Object, try_parse_object
+from sm64_sql.parse_utils import parse_c_enum
 from sm64_sql.sequence import SM64Sequence, parse_sequences
 from sm64_sql.special import (
     SM64SpecialObject,
@@ -86,7 +87,7 @@ def parse_macro_file(path: Path, level_name: str) -> List[SM64MacroObject]:
 
 
 def parse_level(
-    path: Path,
+    path: Path, special_preset_ids: Dict[str, int]
 ) -> Tuple[List[SM64Object], List[SM64MacroObject], List[SM64SpecialObject]]:
     sm64_objects = parse_levelscript(path / "script.c")
     sm64_macro_objects = []
@@ -96,19 +97,29 @@ def parse_level(
     for collision_file in path.glob("**/collision.inc.c"):
         sm64_special_objects.extend(
             parse_special_objects(
-                collision_file, path.name, area_from_path(collision_file)
+                collision_file,
+                path.name,
+                area_from_path(collision_file),
+                special_preset_ids,
             )
         )
     return sm64_objects, sm64_macro_objects, sm64_special_objects
 
 
 def parse_repo(repo: Path) -> SM64Everything:
+    special_preset_names_file = repo / "include" / "special_presets.h"
+    special_preset_ids = dict(
+        parse_c_enum(special_preset_names_file.read_text(), "SpecialPresets")
+    )
+
     sm64_objects = []
     sm64_macro_objects = []
     sm64_special_objects = []
     for level_dir in (repo / "levels").iterdir():
         if level_dir.is_dir():
-            objects, macro_objects, special_objects = parse_level(level_dir)
+            objects, macro_objects, special_objects = parse_level(
+                level_dir, special_preset_ids
+            )
             sm64_objects.extend(objects)
             sm64_macro_objects.extend(macro_objects)
             sm64_special_objects.extend(special_objects)
@@ -135,8 +146,7 @@ def parse_repo(repo: Path) -> SM64Everything:
         parse_dialogs(dialogs_file, dialog_ids_file) if dialogs_file.is_file() else []
     )
     # Special preset data moved to special_presets.inc.c; names stay in the
-    # enum SpecialPresets in special_presets.h.
-    special_preset_names_file = repo / "include" / "special_presets.h"
+    # enum SpecialPresets in special_presets.h (read above for id resolution).
     special_presets_file = repo / "include" / "special_presets.inc.c"
     if not special_presets_file.is_file():
         special_presets_file = special_preset_names_file

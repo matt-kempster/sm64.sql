@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from sm64_sql.parse_utils import (
     extract_macro_args,
@@ -30,7 +30,8 @@ class SM64SpecialPreset:
 
 @dataclass
 class SM64SpecialObject:
-    preset_name: str  # joins to special_preset.preset_name
+    preset_name: str  # as written in the source (may be an enum alias)
+    preset_id: int  # resolved id; joins to special_preset.preset_id (-1 if unknown)
     level: str  # level folder
     area: int  # area number within the level
     pos_x: int
@@ -76,8 +77,15 @@ def parse_special_presets(data_path: Path, names_path: Path) -> List[SM64Special
     return presets
 
 
-def parse_special_objects(path: Path, level: str, area: int) -> List[SM64SpecialObject]:
-    """Parse SPECIAL_OBJECT* placements from a level's collision.inc.c."""
+def parse_special_objects(
+    path: Path, level: str, area: int, preset_ids: Dict[str, int]
+) -> List[SM64SpecialObject]:
+    """Parse SPECIAL_OBJECT* placements from a level's collision.inc.c.
+
+    ``preset_ids`` is the enum SpecialPresets name->id map; it resolves preset
+    aliases (e.g. special_haunted_door is an alias of special_wooden_door) so
+    the placement still joins to a special_preset row by id.
+    """
     special_objects = []
     for line in path.read_text().splitlines():
         line = line.strip()
@@ -91,6 +99,7 @@ def parse_special_objects(path: Path, level: str, area: int) -> List[SM64Special
             special_objects.append(
                 SM64SpecialObject(
                     preset_name=args[0],
+                    preset_id=preset_ids.get(args[0], -1),
                     level=level,
                     area=area,
                     pos_x=int(args[1]),

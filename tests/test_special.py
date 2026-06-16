@@ -59,12 +59,14 @@ def test_parse_special_objects(tmp_path):
     path = tmp_path / "collision.inc.c"
     path.write_text(COLLISION_INC_C)
 
-    objects = parse_special_objects(path, "bob", area=2)
+    preset_ids = {"special_yellow_coin": 1, "special_wooden_door": 2}
+    objects = parse_special_objects(path, "bob", area=2, preset_ids=preset_ids)
     assert len(objects) == 3
 
-    # Plain SPECIAL_OBJECT has no yaw.
+    # Plain SPECIAL_OBJECT has no yaw; preset_id is resolved from the map.
     plain = objects[0]
     assert plain.preset_name == "special_yellow_coin"
+    assert plain.preset_id == 1
     assert (plain.pos_x, plain.pos_y, plain.pos_z) == (100, 200, 300)
     assert plain.yaw == 0
     assert plain.level == "bob"
@@ -75,3 +77,13 @@ def test_parse_special_objects(tmp_path):
 
     # WITH_YAW_AND_PARAM still reads yaw (the trailing param is ignored).
     assert objects[2].yaw == 4
+
+
+def test_parse_special_objects_resolves_alias(tmp_path):
+    path = tmp_path / "collision.inc.c"
+    path.write_text("    SPECIAL_OBJECT(/*preset*/ special_haunted_door, 0, 0, 0),\n")
+    # special_haunted_door aliases special_wooden_door (same id).
+    preset_ids = {"special_wooden_door": 2, "special_haunted_door": 2}
+    [obj] = parse_special_objects(path, "bbh", area=1, preset_ids=preset_ids)
+    assert obj.preset_name == "special_haunted_door"
+    assert obj.preset_id == 2  # joins to the wooden_door preset row
