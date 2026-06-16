@@ -50,6 +50,7 @@ PYTHONPATH=src python -m sm64_sql --repo /path/to/sm64 --db sm64.db
 | `behavior` | `include/behavior_data.h` + `data/behavior_data.c` | `behavior_name`, `obj_list` |
 | `warp` | `levels/*/script.c` | `level`, `area` (0 = level-global), `node_id`, `dest_level`, `dest_area`, `dest_node`, `flags`, `is_painting` |
 | `instant_warp` | `levels/*/script.c` | `level`, `area`, `warp_index`, `dest_area`, `displace_x/y/z` |
+| `area` | `levels/*/script.c` | `level`, `area`, `geo`, `terrain_type`, `background_music`, `dialog` |
 
 Names such as `MODEL_BOO`, `bhvGoomba`, and `macro_yellow_coin_2` are kept as
 the symbolic strings used in the source, so the tables join naturally on those

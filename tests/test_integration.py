@@ -41,6 +41,17 @@ def test_parse_repo_finds_entities(everything):
     assert len(everything.sm64_behaviors) > 0
     assert len(everything.sm64_warps) > 0
     assert len(everything.sm64_instant_warps) > 0
+    assert len(everything.sm64_areas) > 0
+
+
+def test_areas_join_to_dialog_and_sequence(everything):
+    dialog_names = {d.dialog_name for d in everything.sm64_dialogs}
+    used_dialogs = {a.dialog for a in everything.sm64_areas if a.dialog}
+    # Every dialog an area shows is a real dialog.
+    assert used_dialogs <= dialog_names
+    # Most areas declare a background music track and a terrain type.
+    assert any(a.background_music for a in everything.sm64_areas)
+    assert any(a.terrain_type for a in everything.sm64_areas)
 
 
 def test_warps_point_at_known_levels(everything):

@@ -1,5 +1,6 @@
 import sqlite3
 
+from sm64_sql.area import SM64Area
 from sm64_sql.behavior import SM64Behavior
 from sm64_sql.course import SM64Course
 from sm64_sql.db import write_to_db
@@ -129,6 +130,16 @@ def _everything():
                 displace_z=10240,
             )
         ],
+        sm64_areas=[
+            SM64Area(
+                level="bob",
+                area=1,
+                geo="bob_geo_000488",
+                terrain_type="TERRAIN_GRASS",
+                background_music="SEQ_LEVEL_GRASS",
+                dialog="DIALOG_000",
+            )
+        ],
     )
 
 
@@ -167,4 +178,12 @@ def test_write_to_db_round_trip():
         "JOIN behavior b ON o.behavior = b.behavior_name"
     ).fetchone()
     assert behavior_join == ("OBJ_LIST_PUSHABLE",)
+
+    # An area joins to its background music (sequence) and its dialog.
+    area_join = cur.execute(
+        "SELECT s.seq_id, d.text FROM area a "
+        "JOIN sequence s ON a.background_music = s.seq_name "
+        "JOIN dialog d ON a.dialog = d.dialog_name"
+    ).fetchone()
+    assert area_join == (0x03, "Hello there.")
     conn.close()

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Type
 
+from sm64_sql.area import SM64Area, parse_areas
 from sm64_sql.behavior import SM64Behavior, parse_behaviors
 from sm64_sql.course import SM64Course, parse_courses
 from sm64_sql.dialog import SM64Dialog, parse_dialogs
@@ -36,6 +37,7 @@ class SM64Everything:
     sm64_behaviors: List[SM64Behavior]
     sm64_warps: List[SM64Warp]
     sm64_instant_warps: List[SM64InstantWarp]
+    sm64_areas: List[SM64Area]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -56,6 +58,7 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("behavior", SM64Behavior, "sm64_behaviors"),
     ("warp", SM64Warp, "sm64_warps"),
     ("instant_warp", SM64InstantWarp, "sm64_instant_warps"),
+    ("area", SM64Area, "sm64_areas"),
 ]
 
 
@@ -68,6 +71,7 @@ class _LevelData:
     special_objects: List[SM64SpecialObject]
     warps: List[SM64Warp]
     instant_warps: List[SM64InstantWarp]
+    areas: List[SM64Area]
 
 
 def area_from_path(path: Path) -> int:
@@ -111,6 +115,7 @@ def parse_level(path: Path, special_preset_ids: Dict[str, int]) -> _LevelData:
     warps, instant_warps = (
         parse_warps(script, path.name) if script.is_file() else ([], [])
     )
+    areas = parse_areas(script, path.name) if script.is_file() else []
 
     macro_objects = []
     for macro_file in path.glob("**/macro.inc.c"):
@@ -132,6 +137,7 @@ def parse_level(path: Path, special_preset_ids: Dict[str, int]) -> _LevelData:
         special_objects=special_objects,
         warps=warps,
         instant_warps=instant_warps,
+        areas=areas,
     )
 
 
@@ -146,6 +152,7 @@ def parse_repo(repo: Path) -> SM64Everything:
     sm64_special_objects = []
     sm64_warps = []
     sm64_instant_warps = []
+    sm64_areas = []
     for level_dir in (repo / "levels").iterdir():
         if level_dir.is_dir():
             level_data = parse_level(level_dir, special_preset_ids)
@@ -154,6 +161,7 @@ def parse_repo(repo: Path) -> SM64Everything:
             sm64_special_objects.extend(level_data.special_objects)
             sm64_warps.extend(level_data.warps)
             sm64_instant_warps.extend(level_data.instant_warps)
+            sm64_areas.extend(level_data.areas)
     model_ids_file = repo / "include" / "model_ids.h"
     sm64_models = parse_model_ids(model_ids_file)
     # The preset names live in the `enum MacroPresets` in macro_presets.h. The
@@ -202,4 +210,5 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_behaviors=sm64_behaviors,
         sm64_warps=sm64_warps,
         sm64_instant_warps=sm64_instant_warps,
+        sm64_areas=sm64_areas,
     )
