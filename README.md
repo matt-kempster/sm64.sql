@@ -3,11 +3,15 @@
 Load [Super Mario 64 decompilation](https://github.com/n64decomp/sm64) game
 data into a SQLite database so you can explore it with SQL.
 
-The decomp stores level contents as C macros and tables (`OBJECT(...)`,
+The decomp stores its data as C macros and tables (`OBJECT(...)`,
 `MACRO_OBJECT(...)`, `enum MacroPresets`, `#define MODEL_*`, ...). `sm64.sql`
 reads those source files and writes the equivalent rows into a SQLite database,
-so questions like "which objects appear only in act 1?" or "what model does each
-macro preset use?" become one-line queries.
+so questions like "which objects appear only in act 1?", "what music plays in
+each course?", or "where does each painting warp to?" become one-line queries.
+
+It currently populates 16 tables spanning placed objects, models, behaviors,
+levels/courses/areas, warps, dialog, music, animations, and sounds — see the
+[schema](#schema) and [example queries](#example-queries) below.
 
 ## Install
 
@@ -69,11 +73,31 @@ SELECT level, behavior, initial_x, initial_y, initial_z
 FROM object
 WHERE in_act_1 AND NOT (in_act_2 OR in_act_3 OR in_act_4 OR in_act_5 OR in_act_6);
 
--- Join placed objects to their numeric model id.
-SELECT o.level, o.behavior, m.model_id
-FROM object o JOIN model m ON o.model_name = m.model_name;
+-- Each course's display name and the music that plays in its main area.
+SELECT c.display_name, s.seq_name
+FROM area a
+JOIN level l ON a.level = l.folder
+JOIN course c ON l.course_name = c.course_name
+JOIN sequence s ON a.background_music = s.seq_name
+WHERE a.area = 1;
 
--- Which behavior/model does each macro object resolve to?
+-- The level-to-level warp graph (ignoring within-level warps).
+SELECT w.level AS from_level, dl.folder AS to_level, w.node_id
+FROM warp w
+JOIN level sl ON w.level = sl.folder
+JOIN level dl ON w.dest_level = dl.level_name
+WHERE w.dest_level <> sl.level_name;
+
+-- Read the intro dialog shown when entering each area.
+SELECT a.level, a.area, d.text
+FROM area a JOIN dialog d ON a.dialog = d.dialog_name;
+
+-- Which placed objects run a "surface" behavior?
+SELECT o.level, o.behavior
+FROM object o JOIN behavior b ON o.behavior = b.behavior_name
+WHERE b.obj_list = 'OBJ_LIST_SURFACE';
+
+-- Resolve each macro object to its behavior and model.
 SELECT mo.level, mo.macro_name, mp.behavior, mp.model_name
 FROM macro_object mo JOIN macro_preset mp ON mo.macro_name = mp.macro_name;
 ```
@@ -105,14 +129,20 @@ mypy                   # type-check
 
 ## Status & limitations
 
-Implemented: objects, macro objects, models, and macro presets, verified to
-parse a full current `n64decomp/sm64` checkout with every row accounted for.
+16 tables are populated from a full current `n64decomp/sm64` checkout: placed
+objects, macro objects and special objects; models, behaviors, macro/special
+presets; levels, courses and areas; warps and instant warps; dialog text, music
+sequences, Mario animations, and sound effects. Counts are cross-checked against
+the source.
 
 Not yet captured (contributions welcome):
 
 - Behavior parameters (`bhvParam` / preset `param`) are parsed past but not
-  stored.
-- Behaviors, geo layouts, collision, warps, and the level command script
-  itself are not extracted.
+  stored, so the symbolic args aren't yet resolved to numbers.
+- Geo layouts, collision geometry, trajectories, and the level command script
+  flow (jumps/loops) are not extracted — see the geometry note in the project
+  brief; these are intentionally out of scope.
 - Models are limited to `model_ids.h`; per-level geometry models defined
   elsewhere are not included.
+- A few values are kept verbatim rather than resolved: e.g. an area whose music
+  is `SEQ_x | SEQ_VARIATION` won't join to `sequence` by name.
