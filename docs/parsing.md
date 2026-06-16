@@ -90,9 +90,16 @@ constants resolve to numbers.
 - **Do not adopt libclang/pycparser for extraction.** The one place real
   evaluation helps is resolving symbolic constants to numbers (behavior params,
   aliased/expression model ids). That is a small, targeted *constant-resolution*
-  problem — best solved with a tiny expression evaluator over the `#define` and
-  `enum` tables we already build (this is how aliased model ids are resolved
-  today in `model.py`), not a full C frontend.
+  problem — best solved with a tiny expression evaluator, not a full C frontend.
+  This is exactly what `src/sm64_sql/behavior_param.py` does: it expands the
+  `BPARAMn` macros and evaluates the arithmetic (`|`, `<<`, `&`, …) over a
+  whitelisted `ast`, so a numeric `BPARAM1(0x07) | BPARAM2(0x12)` resolves to
+  `0x07120000`. It is the same shape as the aliased-model-id resolution in
+  `model.py`. The remaining gap is purely *which* numbers the named constants
+  stand for (`WARP_NODE_03`, `DIALOG_089`): those need the scattered `#define`
+  tables to be harvested, which is more breadth than depth.
 
 In short: the parser backend is not the bottleneck. The interesting future work
-is semantic resolution, which no choice of parser solves on its own.
+is semantic resolution — already done for numeric expressions, with named
+`#define` constants the remaining frontier — which no choice of parser solves
+on its own.

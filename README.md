@@ -41,16 +41,16 @@ PYTHONPATH=src python -m sm64_sql --repo /path/to/sm64 --db sm64.db
 
 | Table | Source | Columns |
 | --- | --- | --- |
-| `object` | `levels/*/script.c` | `model_name`, `level`, `initial_x/y/z`, `initial_rot_x/y/z`, `behavior`, `in_act_1` … `in_act_6` |
-| `macro_object` | `levels/**/macro.inc.c` | `macro_name`, `level`, `yaw`, `pos_x/y/z` |
+| `object` | `levels/*/script.c` | `model_name`, `level`, `initial_x/y/z`, `initial_rot_x/y/z`, `bhv_param`, `bhv_param_value`, `bhv_param_1` … `bhv_param_4`, `behavior`, `in_act_1` … `in_act_6` |
+| `macro_object` | `levels/**/macro.inc.c` | `macro_name`, `level`, `yaw`, `pos_x/y/z`, `bhv_param`, `bhv_param_value` |
 | `model` | `include/model_ids.h` | `model_name`, `model_id` |
-| `macro_preset` | `include/macro_presets.h` + `macro_presets.inc.c` | `macro_name`, `behavior`, `model_name` |
+| `macro_preset` | `include/macro_presets.h` + `macro_presets.inc.c` | `macro_name`, `behavior`, `model_name`, `param`, `param_value` |
 | `level` | `levels/level_defines.h` | `level_name`, `course_name`, `folder`, `internal_name`, `is_stub` |
 | `course` | `levels/course_defines.h` | `course_name`, `display_name`, `dance_cutscene`, `is_bonus` |
 | `sequence` | `include/seq_ids.h` | `seq_name`, `seq_id` (music tracks) |
 | `dialog` | `text/us/dialogs.h` + `include/dialog_ids.h` | `dialog_name`, `dialog_id`, `lines_per_box`, `left_offset`, `width`, `text` |
 | `special_preset` | `include/special_presets.h` + `special_presets.inc.c` | `preset_name`, `preset_id`, `preset_type`, `default_param`, `model_name`, `behavior` |
-| `special_object` | `levels/**/collision.inc.c` | `preset_name`, `preset_id`, `level`, `area`, `pos_x/y/z`, `yaw` |
+| `special_object` | `levels/**/collision.inc.c` | `preset_name`, `preset_id`, `level`, `area`, `pos_x/y/z`, `yaw`, `bhv_param`, `bhv_param_value` |
 | `behavior` | `include/behavior_data.h` + `data/behavior_data.c` | `behavior_name`, `obj_list` |
 | `warp` | `levels/*/script.c` | `level`, `area` (0 = level-global), `node_id`, `dest_level`, `dest_area`, `dest_node`, `flags`, `is_painting` |
 | `instant_warp` | `levels/*/script.c` | `level`, `area`, `warp_index`, `dest_area`, `displace_x/y/z` |
@@ -61,6 +61,23 @@ PYTHONPATH=src python -m sm64_sql --repo /path/to/sm64 --db sm64.db
 Names such as `MODEL_BOO`, `bhvGoomba`, and `macro_yellow_coin_2` are kept as
 the symbolic strings used in the source, so the tables join naturally on those
 names.
+
+### Behavior parameters
+
+Each placed object carries a *behavior parameter* that the game packs into the
+32-bit `oBhvParams` field, written in the source as a combination of the
+`BPARAMn` macros (`BPARAM1(x)` is the top byte, `BPARAM2(x)` the next, …). Each
+byte is an independent, behavior-specific field — a warp node, a dialog id, a
+star index, an enemy size, and so on. The tables expose it three ways:
+
+- `bhv_param` keeps the expression exactly as written (e.g.
+  `BPARAM1(0x01) | BPARAM2(WARP_NODE_03)` or `DIALOG_089`).
+- `bhv_param_value` is the resolved 32-bit integer, but only when the whole
+  expression is numeric; expressions that reference a `#define`d constant are
+  left `NULL`.
+- on `object`, `bhv_param_1` … `bhv_param_4` hold the argument written in each
+  `BPARAMn` slot (`bhv_param_2` is the famous `oBhvParams2ndByte`), so a warp
+  node or star index can be selected or joined directly.
 
 ## Example queries
 
@@ -100,6 +117,22 @@ WHERE b.obj_list = 'OBJ_LIST_SURFACE';
 -- Resolve each macro object to its behavior and model.
 SELECT mo.level, mo.macro_name, mp.behavior, mp.model_name
 FROM macro_object mo JOIN macro_preset mp ON mo.macro_name = mp.macro_name;
+
+-- Read the message on each signpost: its behavior param is a dialog id.
+SELECT mo.level, d.text
+FROM macro_object mo JOIN dialog d ON mo.bhv_param = d.dialog_name
+WHERE mo.macro_name = 'macro_wooden_signpost';
+
+-- Which warp node does each warp object send Mario to? (BPARAM2 = 2nd byte)
+SELECT level, behavior, bhv_param_2 AS warp_node
+FROM object
+WHERE behavior LIKE '%Warp%' AND bhv_param_2 IS NOT NULL;
+
+-- Map each star to the act that awards it (BPARAM1 = 1st byte).
+SELECT level, behavior, bhv_param_1 AS star_index
+FROM object
+WHERE bhv_param_1 LIKE 'STAR_INDEX_%'
+ORDER BY level, bhv_param_1;
 ```
 
 ## How it works
@@ -110,10 +143,14 @@ compiler would parse directly — the files are designed to be `#include`d and
 macro-expanded. `sm64.sql` reads them line by line and pulls the arguments out
 of each known macro call. Argument extraction is bracket-aware
 (`src/sm64_sql/parse_utils.py`), so behavior-parameter expressions like
-`BPARAM2(41)` or `BPARAM1(0) | BPARAM2(1)` are handled correctly.
+`BPARAM2(41)` or `BPARAM1(0) | BPARAM2(1)` are split, decomposed into their
+byte slots, and arithmetically resolved when fully numeric
+(`src/sm64_sql/behavior_param.py`).
 
 This deliberately stops at *structure*, not *semantics*: it keeps `MODEL_BOO`
-as a string rather than expanding it to a number. See
+as a string rather than expanding it to a number, and likewise leaves a
+behavior param such as `BPARAM2(WARP_NODE_03)` as the symbol `WARP_NODE_03`
+rather than resolving the `#define` to a number. See
 [`docs/parsing.md`](docs/parsing.md) for the trade-offs and when a real C
 parser (e.g. tree-sitter) would be worth adopting.
 
@@ -135,10 +172,15 @@ presets; levels, courses and areas; warps and instant warps; dialog text, music
 sequences, Mario animations, and sound effects. Counts are cross-checked against
 the source.
 
+Behavior parameters (`bhvParam` / preset `param`) are captured on the object,
+macro object, special object, and macro preset tables — split into their
+`BPARAM` byte slots and resolved to a number when the expression is numeric.
+
 Not yet captured (contributions welcome):
 
-- Behavior parameters (`bhvParam` / preset `param`) are parsed past but not
-  stored, so the symbolic args aren't yet resolved to numbers.
+- Symbolic param constants (`WARP_NODE_*`, `STAR_INDEX_*`, `GOOMBA_SIZE_*`, …)
+  are kept as strings; resolving them to numbers would mean reading the
+  scattered `#define` tables (e.g. `include/object_constants.h`).
 - Geo layouts, collision geometry, trajectories, and the level command script
   flow (jumps/loops) are not extracted — see the geometry note in the project
   brief; these are intentionally out of scope.
