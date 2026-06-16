@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from parse_utils import strip_comments_and_whitespace
+from sm64_sql.parse_utils import strip_comments_and_whitespace
 
 
 @dataclass

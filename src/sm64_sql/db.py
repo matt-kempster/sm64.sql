@@ -1,12 +1,11 @@
 import dataclasses
 import sqlite3
 from typing import Any, Iterable, Optional, Tuple
-from everything import SM64Everything
-from macro_object import SM64MacroObject
-from macro_preset import SM64MacroPreset
-
-from model import SM64Model
-from object import SM64Object
+from sm64_sql.everything import SM64Everything
+from sm64_sql.macro_object import SM64MacroObject
+from sm64_sql.macro_preset import SM64MacroPreset
+from sm64_sql.model import SM64Model
+from sm64_sql.object import SM64Object
 
 
 def get_sql_type(python_type: str) -> str:
@@ -28,7 +27,10 @@ def create_table(
 ):
     command = f"CREATE TABLE {table_name} ("
     for field in fields:
-        sql_type = get_sql_type(field.type.__name__)
+        # dataclasses.Field.type is the type object normally, but a string when
+        # the module uses `from __future__ import annotations`. Handle both.
+        type_name = field.type if isinstance(field.type, str) else field.type.__name__
+        sql_type = get_sql_type(type_name)
         command += f"{field.name} {sql_type}, "
     if primary_key:
         command += f"PRIMARY KEY {primary_key}"

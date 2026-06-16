@@ -2,8 +2,8 @@ import argparse
 import sqlite3
 from pathlib import Path
 from typing import Optional
-from db import write_to_db
-from everything import parse_repo
+from sm64_sql.db import write_to_db
+from sm64_sql.everything import parse_repo
 
 
 def check_repo(repo_path: str) -> Path:

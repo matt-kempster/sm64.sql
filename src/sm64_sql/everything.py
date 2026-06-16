@@ -1,12 +1,11 @@
-from asyncore import write
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
 
-from macro_object import SM64MacroObject, try_parse_macro_object
-from macro_preset import SM64MacroPreset, parse_macro_presets
-from model import SM64Model, parse_model_ids
-from object import SM64Object, try_parse_object
+from sm64_sql.macro_object import SM64MacroObject, try_parse_macro_object
+from sm64_sql.macro_preset import SM64MacroPreset, parse_macro_presets
+from sm64_sql.model import SM64Model, parse_model_ids
+from sm64_sql.object import SM64Object, try_parse_object
 
 
 @dataclass

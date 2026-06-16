@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sm64-sql"
+version = "0.1.0"
+description = "Load Super Mario 64 decompilation game data into a SQLite database."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Matt Kempster", email = "kidpixel@gmail.com" }]
+keywords = ["sm64", "super-mario-64", "decomp", "sqlite", "rom-hacking"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Games/Entertainment",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/matt-kempster/sm64.sql"
+Repository = "https://github.com/matt-kempster/sm64.sql"
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "black>=24", "mypy>=1"]
+
+[project.scripts]
+sm64-sql = "sm64_sql.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.mypy]
+files = ["src", "tests"]
+python_version = "3.8"
+ignore_missing_imports = true
