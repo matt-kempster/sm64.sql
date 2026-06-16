@@ -2,6 +2,8 @@ import argparse
 import sqlite3
 from pathlib import Path
 from typing import Optional
+
+from sm64_sql import __version__
 from sm64_sql.db import write_to_db
 from sm64_sql.everything import parse_repo
 
@@ -31,11 +33,24 @@ def run(repo: str, db: Optional[str], overwrite: bool) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-r", "--repo", help="SM64 source repo", required=True)
-    parser.add_argument("-d", "--db", help="SQLite database file")
+    parser = argparse.ArgumentParser(
+        prog="sm64-sql",
+        description="Load SM64 decompilation game data into a SQLite database.",
+    )
     parser.add_argument(
-        "-o", "--overwrite", help="Overwrite database by default", action="store_true"
+        "-r", "--repo", help="path to the SM64 decompilation source tree", required=True
+    )
+    parser.add_argument(
+        "-d", "--db", help="SQLite file to write (default: in-memory, discarded)"
+    )
+    parser.add_argument(
+        "-o",
+        "--overwrite",
+        help="overwrite an existing database without prompting",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
     )
     args = parser.parse_args()
     run(args.repo, args.db, args.overwrite)
