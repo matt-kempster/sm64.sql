@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from sm64_sql.parse_utils import strip_comments_and_whitespace
+from sm64_sql.parse_utils import extract_macro_args
 
 
 @dataclass
@@ -15,17 +15,21 @@ class SM64MacroObject:
 
 
 def try_parse_macro_object(line: str, level_name: str) -> Optional[SM64MacroObject]:
-    if not line.startswith("MACRO_OBJECT") or line.startswith("MACRO_OBJECT_END"):
+    # The macro is spelled MACRO_OBJECT_WITH_BHV_PARAM in the decomp. It adds a
+    # trailing bhvParam argument; the preset/yaw/pos arguments keep their
+    # positions, so both variants are read the same way.
+    has_bhv_param = line.strip().startswith("MACRO_OBJECT_WITH_BHV_PARAM")
+    macro = "MACRO_OBJECT_WITH_BHV_PARAM" if has_bhv_param else "MACRO_OBJECT"
+    line_parts = extract_macro_args(line, macro)
+    if line_parts is None:
         return None
-    has_beh_param = False
-    if line.startswith("MACRO_OBJECT_WITH_BEH_PARAM"):
-        has_beh_param = True
-        line = line.replace("MACRO_OBJECT_WITH_BEH_PARAM(", "").replace("),", "")
-    else:
-        line = line.replace("MACRO_OBJECT(", "").replace("),", "")
-    line_parts = [strip_comments_and_whitespace(part) for part in line.split(",")]
-    if len(line_parts) != (6 if has_beh_param else 5):
-        raise ValueError(f"Invalid number of parts ({len(line_parts)}) in line: {line}")
+
+    expected = 6 if has_bhv_param else 5
+    if len(line_parts) != expected:
+        raise ValueError(
+            f"Expected {expected} args in {macro}, got {len(line_parts)}: "
+            f"{line.strip()}"
+        )
     return SM64MacroObject(
         macro_name=line_parts[0],
         level=level_name,
@@ -33,5 +37,5 @@ def try_parse_macro_object(line: str, level_name: str) -> Optional[SM64MacroObje
         pos_x=int(line_parts[2]),
         pos_y=int(line_parts[3]),
         pos_z=int(line_parts[4]),
-        # TODO: beh param
+        # TODO: bhv param
     )

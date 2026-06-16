@@ -1,7 +1,7 @@
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import List, Optional
 
-from sm64_sql.parse_utils import strip_comments_and_whitespace
+from sm64_sql.parse_utils import extract_macro_args
 
 
 @dataclass
@@ -25,31 +25,33 @@ class SM64Object:
     in_act_6: bool
 
 
+def parse_acts(acts: str) -> List[bool]:
+    """Parse an OBJECT_WITH_ACTS act mask like ``ACT_1 | ACT_3`` into 6 flags."""
+    if acts == "ALL_ACTS":
+        return [True] * 6
+    act_presence = [False] * 6
+    for act_id in acts.split("|"):
+        act = int(act_id.strip()[len("ACT_") :])
+        act_presence[act - 1] = True
+    return act_presence
+
+
 def try_parse_object(line: str, level: str) -> Optional[SM64Object]:
-    if not line.startswith("OBJECT"):
+    has_acts = line.strip().startswith("OBJECT_WITH_ACTS")
+    macro_name = "OBJECT_WITH_ACTS" if has_acts else "OBJECT"
+    line_parts = extract_macro_args(line, macro_name)
+    if line_parts is None:
         return None
 
-    def parse_acts(acts: str) -> List[bool]:
-        if acts == "ALL_ACTS":
-            return [True for _ in range(6)]
-        act_presence = [False for _ in range(6)]
-        for act_id in acts.split(" | "):
-            act = int(act_id[len("ACT_") :])
-            act_presence[act - 1] = True
-        return act_presence
-
-    has_acts = False
-    if line.startswith("OBJECT_WITH_ACTS"):
-        has_acts = True
-        line = line.replace("OBJECT_WITH_ACTS(", "").replace("),", "")
-    else:
-        line = line.replace("OBJECT", "").replace("(", "").replace("),", "")
-    line_parts = [strip_comments_and_whitespace(part) for part in line.split(",")]
-    if len(line_parts) != (10 if has_acts else 9):
-        raise ValueError(f"Invalid number of parts ({len(line_parts)}) in line: {line}")
+    expected = 10 if has_acts else 9
+    if len(line_parts) != expected:
+        raise ValueError(
+            f"Expected {expected} args in {macro_name}, got {len(line_parts)}: "
+            f"{line.strip()}"
+        )
 
     # If ACT_* not present, the object is in all the acts
-    act_presence = parse_acts(line_parts[9]) if has_acts else [True for _ in range(6)]
+    act_presence = parse_acts(line_parts[9]) if has_acts else [True] * 6
 
     return SM64Object(
         level=level,

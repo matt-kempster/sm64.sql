@@ -57,9 +57,16 @@ def parse_repo(repo: Path) -> SM64Everything:
             sm64_macro_objects.extend(sm64_objects_level[1])
     model_ids_file = repo / "include" / "model_ids.h"
     sm64_models = parse_model_ids(model_ids_file)
+    # The preset names live in the `enum MacroPresets` in macro_presets.h. The
+    # preset data array moved to macro_presets.inc.c in newer decomp revisions;
+    # fall back to macro_presets.h for older trees that kept it there.
+    macro_preset_names_file = repo / "include" / "macro_presets.h"
+    macro_presets_file = repo / "include" / "macro_presets.inc.c"
+    if not macro_presets_file.is_file():
+        macro_presets_file = macro_preset_names_file
     sm64_macro_presets = parse_macro_presets(
-        repo / "include" / "macro_presets.h",
-        repo / "include" / "macro_preset_names.h",
+        macro_presets_file,
+        macro_preset_names_file,
     )
     return SM64Everything(
         sm64_objects, sm64_macro_objects, sm64_models, sm64_macro_presets
