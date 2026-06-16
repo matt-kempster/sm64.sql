@@ -9,10 +9,12 @@ from sm64_sql.dialog import SM64Dialog, parse_dialogs
 from sm64_sql.level import SM64Level, parse_levels
 from sm64_sql.macro_object import SM64MacroObject, try_parse_macro_object
 from sm64_sql.macro_preset import SM64MacroPreset, parse_macro_presets
+from sm64_sql.mario_animation import SM64MarioAnimation, parse_mario_animations
 from sm64_sql.model import SM64Model, parse_model_ids
 from sm64_sql.object import SM64Object, try_parse_object
 from sm64_sql.parse_utils import parse_c_enum
 from sm64_sql.sequence import SM64Sequence, parse_sequences
+from sm64_sql.sound import SM64Sound, parse_sounds
 from sm64_sql.special import (
     SM64SpecialObject,
     SM64SpecialPreset,
@@ -38,6 +40,8 @@ class SM64Everything:
     sm64_warps: List[SM64Warp]
     sm64_instant_warps: List[SM64InstantWarp]
     sm64_areas: List[SM64Area]
+    sm64_mario_animations: List[SM64MarioAnimation]
+    sm64_sounds: List[SM64Sound]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -59,6 +63,8 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("warp", SM64Warp, "sm64_warps"),
     ("instant_warp", SM64InstantWarp, "sm64_instant_warps"),
     ("area", SM64Area, "sm64_areas"),
+    ("mario_animation", SM64MarioAnimation, "sm64_mario_animations"),
+    ("sound", SM64Sound, "sm64_sounds"),
 ]
 
 
@@ -196,6 +202,10 @@ def parse_repo(repo: Path) -> SM64Everything:
         repo / "include" / "behavior_data.h",
         repo / "data" / "behavior_data.c",
     )
+    sm64_mario_animations = parse_mario_animations(
+        repo / "include" / "mario_animation_ids.h"
+    )
+    sm64_sounds = parse_sounds(repo / "include" / "sounds.h")
     return SM64Everything(
         sm64_objects=sm64_objects,
         sm64_macro_objects=sm64_macro_objects,
@@ -211,4 +221,6 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_warps=sm64_warps,
         sm64_instant_warps=sm64_instant_warps,
         sm64_areas=sm64_areas,
+        sm64_mario_animations=sm64_mario_animations,
+        sm64_sounds=sm64_sounds,
     )

@@ -42,6 +42,14 @@ def test_parse_repo_finds_entities(everything):
     assert len(everything.sm64_warps) > 0
     assert len(everything.sm64_instant_warps) > 0
     assert len(everything.sm64_areas) > 0
+    assert len(everything.sm64_mario_animations) > 0
+    assert len(everything.sm64_sounds) > 0
+
+
+def test_sounds_have_banks(everything):
+    # Every sound has a SOUND_BANK_* category and a non-negative id.
+    assert all(s.bank.startswith("SOUND_BANK_") for s in everything.sm64_sounds)
+    assert all(s.sound_id >= 0 for s in everything.sm64_sounds)
 
 
 def test_areas_join_to_dialog_and_sequence(everything):

@@ -9,9 +9,11 @@ from sm64_sql.everything import SM64Everything
 from sm64_sql.level import SM64Level
 from sm64_sql.macro_object import SM64MacroObject
 from sm64_sql.macro_preset import SM64MacroPreset
+from sm64_sql.mario_animation import SM64MarioAnimation
 from sm64_sql.model import SM64Model
 from sm64_sql.object import SM64Object
 from sm64_sql.sequence import SM64Sequence
+from sm64_sql.sound import SM64Sound
 from sm64_sql.special import SM64SpecialObject, SM64SpecialPreset
 from sm64_sql.warp import SM64InstantWarp, SM64Warp
 
@@ -138,6 +140,16 @@ def _everything():
                 terrain_type="TERRAIN_GRASS",
                 background_music="SEQ_LEVEL_GRASS",
                 dialog="DIALOG_000",
+            )
+        ],
+        sm64_mario_animations=[
+            SM64MarioAnimation(anim_name="MARIO_ANIM_BACKFLIP", anim_id=4)
+        ],
+        sm64_sounds=[
+            SM64Sound(
+                sound_name="SOUND_ACTION_TERRAIN_JUMP",
+                sound_id=0x04008080,
+                bank="SOUND_BANK_ACTION",
             )
         ],
     )
