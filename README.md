@@ -44,6 +44,7 @@ PYTHONPATH=src python -m sm64_sql --repo /path/to/sm64 --db sm64.db
 | `level` | `levels/level_defines.h` | `level_name`, `course_name`, `folder`, `internal_name`, `is_stub` |
 | `course` | `levels/course_defines.h` | `course_name`, `display_name`, `dance_cutscene`, `is_bonus` |
 | `sequence` | `include/seq_ids.h` | `seq_name`, `seq_id` (music tracks) |
+| `dialog` | `text/us/dialogs.h` + `include/dialog_ids.h` | `dialog_name`, `dialog_id`, `lines_per_box`, `left_offset`, `width`, `text` |
 
 Names such as `MODEL_BOO`, `bhvGoomba`, and `macro_yellow_coin_2` are kept as
 the symbolic strings used in the source, so the tables join naturally on those

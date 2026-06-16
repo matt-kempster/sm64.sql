@@ -2,6 +2,7 @@ import sqlite3
 
 from sm64_sql.course import SM64Course
 from sm64_sql.db import write_to_db
+from sm64_sql.dialog import SM64Dialog
 from sm64_sql.everything import SM64Everything
 from sm64_sql.level import SM64Level
 from sm64_sql.macro_object import SM64MacroObject
@@ -67,6 +68,16 @@ def _everything():
             )
         ],
         sm64_sequences=[SM64Sequence(seq_name="SEQ_LEVEL_GRASS", seq_id=0x03)],
+        sm64_dialogs=[
+            SM64Dialog(
+                dialog_name="DIALOG_000",
+                dialog_id=0,
+                lines_per_box=6,
+                left_offset=30,
+                width=200,
+                text="Hello there.",
+            )
+        ],
     )
 
 

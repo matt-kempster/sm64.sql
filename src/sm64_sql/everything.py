@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, List, Tuple, Type
 
 from sm64_sql.course import SM64Course, parse_courses
+from sm64_sql.dialog import SM64Dialog, parse_dialogs
 from sm64_sql.level import SM64Level, parse_levels
 from sm64_sql.macro_object import SM64MacroObject, try_parse_macro_object
 from sm64_sql.macro_preset import SM64MacroPreset, parse_macro_presets
@@ -20,6 +21,7 @@ class SM64Everything:
     sm64_levels: List[SM64Level]
     sm64_courses: List[SM64Course]
     sm64_sequences: List[SM64Sequence]
+    sm64_dialogs: List[SM64Dialog]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -34,6 +36,7 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("level", SM64Level, "sm64_levels"),
     ("course", SM64Course, "sm64_courses"),
     ("sequence", SM64Sequence, "sm64_sequences"),
+    ("dialog", SM64Dialog, "sm64_dialogs"),
 ]
 
 
@@ -92,6 +95,12 @@ def parse_repo(repo: Path) -> SM64Everything:
     sm64_levels = parse_levels(repo / "levels" / "level_defines.h")
     sm64_courses = parse_courses(repo / "levels" / "course_defines.h")
     sm64_sequences = parse_sequences(repo / "include" / "seq_ids.h")
+    # Dialog text is per-language under text/<lang>/; default to US English.
+    dialogs_file = repo / "text" / "us" / "dialogs.h"
+    dialog_ids_file = repo / "include" / "dialog_ids.h"
+    sm64_dialogs = (
+        parse_dialogs(dialogs_file, dialog_ids_file) if dialogs_file.is_file() else []
+    )
     return SM64Everything(
         sm64_objects=sm64_objects,
         sm64_macro_objects=sm64_macro_objects,
@@ -100,4 +109,5 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_levels=sm64_levels,
         sm64_courses=sm64_courses,
         sm64_sequences=sm64_sequences,
+        sm64_dialogs=sm64_dialogs,
     )

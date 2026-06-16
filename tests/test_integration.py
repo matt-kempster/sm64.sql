@@ -35,6 +35,14 @@ def test_parse_repo_finds_entities(everything):
     assert len(everything.sm64_levels) > 0
     assert len(everything.sm64_courses) > 0
     assert len(everything.sm64_sequences) > 0
+    assert len(everything.sm64_dialogs) > 0
+
+
+def test_dialogs_have_text(everything):
+    # Dialog text should be non-empty and ids should be unique.
+    assert all(d.text for d in everything.sm64_dialogs)
+    ids = [d.dialog_id for d in everything.sm64_dialogs]
+    assert len(ids) == len(set(ids))
 
 
 def test_levels_reference_known_courses(everything):
