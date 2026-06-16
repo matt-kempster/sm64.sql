@@ -28,6 +28,12 @@ def _everything():
         initial_rot_x=0,
         initial_rot_y=0,
         initial_rot_z=0,
+        bhv_param="0",
+        bhv_param_value=0,
+        bhv_param_1=None,
+        bhv_param_2=None,
+        bhv_param_3=None,
+        bhv_param_4=None,
         behavior="bhvGoomba",
         in_act_1=True,
         in_act_2=False,
@@ -46,6 +52,8 @@ def _everything():
                 pos_x=10,
                 pos_y=20,
                 pos_z=30,
+                bhv_param="0",
+                bhv_param_value=0,
             )
         ],
         sm64_models=[SM64Model(model_name="MODEL_GOOMBA", model_id=0x54)],
@@ -54,6 +62,9 @@ def _everything():
                 macro_name="macro_goomba",
                 behavior="bhvGoomba",
                 model_name="MODEL_GOOMBA",
+                # A symbolic param resolves to NULL, exercising Optional columns.
+                param="GOOMBA_SIZE_HUGE",
+                param_value=None,
             )
         ],
         sm64_levels=[
@@ -104,6 +115,8 @@ def _everything():
                 pos_y=-4689,
                 pos_z=2330,
                 yaw=192,
+                bhv_param="0",
+                bhv_param_value=0,
             )
         ],
         sm64_behaviors=[
@@ -170,6 +183,21 @@ def test_write_to_db_round_trip():
         "SELECT model_name, behavior, in_act_1, in_act_2 FROM object"
     ).fetchone()
     assert row == ("MODEL_GOOMBA", "bhvGoomba", 1, 0)
+
+    # Behavior params round-trip, including Optional columns stored as NULL.
+    param_row = cur.execute(
+        "SELECT bhv_param, bhv_param_value, bhv_param_2 FROM object"
+    ).fetchone()
+    assert param_row == ("0", 0, None)
+    preset_param = cur.execute("SELECT param, param_value FROM macro_preset").fetchone()
+    assert preset_param == ("GOOMBA_SIZE_HUGE", None)
+    # A symbolic (unresolved) value is queryable as a SQL NULL.
+    assert (
+        cur.execute(
+            "SELECT COUNT(*) FROM macro_preset WHERE param_value IS NULL"
+        ).fetchone()[0]
+        == 1
+    )
 
     # A join across the extracted tables works, which is the whole point.
     joined = cur.execute(

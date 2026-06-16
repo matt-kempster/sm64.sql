@@ -14,12 +14,35 @@ def test_parse_object_basic_is_in_all_acts():
     assert [obj.in_act_1, obj.in_act_6] == [True, True]
 
 
+def test_parse_object_basic_has_zero_param():
+    line = "OBJECT(/*model*/ MODEL_GOOMBA, /*pos*/ 1, 2, 3, /*angle*/ 0, 0, 0, /*bhvParam*/ 0, /*bhv*/ bhvGoomba),"
+    obj = try_parse_object(line, "bob")
+    assert obj is not None
+    assert obj.bhv_param == "0"
+    assert obj.bhv_param_value == 0
+    assert obj.bhv_param_1 is None and obj.bhv_param_2 is None
+
+
 def test_parse_object_with_bparam_macro_does_not_crash():
     line = "OBJECT(/*model*/ MODEL_NONE, /*pos*/ 799, 1024, 4434, /*angle*/ 0, 0, 0, /*bhvParam*/ BPARAM2(184), /*bhv*/ bhvPoleGrabbing),"
     obj = try_parse_object(line, "jrb")
     assert obj is not None
     assert obj.model_name == "MODEL_NONE"
     assert obj.behavior == "bhvPoleGrabbing"
+    # The 2nd byte (oBhvParams2ndByte) is captured and resolved.
+    assert obj.bhv_param == "BPARAM2(184)"
+    assert obj.bhv_param_2 == "184"
+    assert obj.bhv_param_value == 184 << 16
+
+
+def test_parse_object_symbolic_param_kept_unresolved():
+    line = "OBJECT(/*model*/ MODEL_NONE, /*pos*/ 0, 0, 0, /*angle*/ 0, 0, 0, /*bhvParam*/ BPARAM1(0x01) | BPARAM2(WARP_NODE_03), /*bhv*/ bhvDoorWarp),"
+    obj = try_parse_object(line, "castle_inside")
+    assert obj is not None
+    assert obj.bhv_param_1 == "0x01"
+    assert obj.bhv_param_2 == "WARP_NODE_03"
+    # A symbolic operand leaves the combined value unresolved (NULL).
+    assert obj.bhv_param_value is None
 
 
 def test_parse_object_with_acts_subset():

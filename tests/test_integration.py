@@ -120,3 +120,47 @@ def test_objects_reference_known_levels(everything):
     levels = {obj.level for obj in everything.sm64_objects}
     # A handful of well-known course folders that always exist.
     assert {"bob", "jrb"} <= levels
+
+
+def test_behavior_params_are_captured(everything):
+    objects = everything.sm64_objects
+    # Every object records its behavior-param expression (defaults to "0").
+    assert all(o.bhv_param for o in objects)
+    # Real data has a mix: many non-zero params, some numerically resolved and
+    # some left symbolic (NULL value) because they reference a #define.
+    assert any(o.bhv_param != "0" for o in objects)
+    assert any(o.bhv_param_value is not None for o in objects)
+    assert any(o.bhv_param_value is None for o in objects)
+    # Warp objects expose their destination warp node in the 2nd byte (BPARAM2).
+    assert any(
+        o.bhv_param_2 and o.bhv_param_2.startswith("WARP_NODE_") for o in objects
+    )
+    # Star objects expose their act/star index in the 1st byte (BPARAM1).
+    assert any(
+        o.bhv_param_1 and o.bhv_param_1.startswith("STAR_INDEX_") for o in objects
+    )
+
+
+def test_signpost_params_join_to_dialog(everything):
+    dialog_names = {d.dialog_name for d in everything.sm64_dialogs}
+    signpost_dialogs = {
+        mo.bhv_param
+        for mo in everything.sm64_macro_objects
+        if mo.macro_name == "macro_wooden_signpost"
+        and mo.bhv_param.startswith("DIALOG_")
+    }
+    # Signposts carry a dialog id as their param, and it joins to a real dialog.
+    assert signpost_dialogs
+    assert signpost_dialogs <= dialog_names
+
+
+def test_resolved_param_value_packs_the_bytes(everything):
+    # An object with two numeric BPARAM bytes should pack them per the macros:
+    # BPARAM1 -> bits 24-31, BPARAM2 -> bits 16-23.
+    for o in everything.sm64_objects:
+        if o.bhv_param_1 and o.bhv_param_2 and o.bhv_param_value is not None:
+            assert (o.bhv_param_value >> 24) & 0xFF == int(o.bhv_param_1, 0) & 0xFF
+            assert (o.bhv_param_value >> 16) & 0xFF == int(o.bhv_param_2, 0) & 0xFF
+            break
+    else:
+        raise AssertionError("expected a fully-numeric two-byte param to exist")

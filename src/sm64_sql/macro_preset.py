@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
+from sm64_sql.behavior_param import parse_behavior_param
 from sm64_sql.parse_utils import split_top_level, strip_block_comments
 
 
@@ -10,7 +11,8 @@ class SM64MacroPreset:
     macro_name: str
     behavior: str
     model_name: str
-    # TODO: param
+    param: str  # the preset's default param expression, or "0"
+    param_value: Optional[int]  # resolved value, or NULL if symbolic
 
 
 def _strip_comments(line: str) -> str:
@@ -73,12 +75,14 @@ def parse_macro_presets(
                 "More preset rows than names in enum MacroPresets "
                 f"(row {enum_index}): {line}"
             )
+        param = parse_behavior_param(line_parts[2])
         macro_presets.append(
             SM64MacroPreset(
                 macro_name=macro_preset_names[enum_index],
                 behavior=line_parts[0],
                 model_name=line_parts[1],
-                # TODO: param (line_parts[2])
+                param=param.raw,
+                param_value=param.value,
             )
         )
         enum_index += 1

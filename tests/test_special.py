@@ -72,11 +72,17 @@ def test_parse_special_objects(tmp_path):
     assert plain.level == "bob"
     assert plain.area == 2
 
+    # A placement without a param column defaults to 0.
+    assert plain.bhv_param == "0"
+    assert plain.bhv_param_value == 0
+
     # WITH_YAW captures the yaw.
     assert objects[1].yaw == 192
 
-    # WITH_YAW_AND_PARAM still reads yaw (the trailing param is ignored).
+    # WITH_YAW_AND_PARAM reads both the yaw and the trailing param.
     assert objects[2].yaw == 4
+    assert objects[2].bhv_param == "5"
+    assert objects[2].bhv_param_value == 5
 
 
 def test_parse_special_objects_resolves_alias(tmp_path):

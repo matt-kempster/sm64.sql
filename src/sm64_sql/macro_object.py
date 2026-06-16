@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from sm64_sql.behavior_param import parse_behavior_param
 from sm64_sql.parse_utils import extract_macro_args
 
 
@@ -12,6 +13,8 @@ class SM64MacroObject:
     pos_x: int
     pos_y: int
     pos_z: int
+    bhv_param: str  # per-placement behavior param (16-bit), e.g. DIALOG_089 or 0
+    bhv_param_value: Optional[int]  # resolved value, or NULL if symbolic
 
 
 def try_parse_macro_object(line: str, level_name: str) -> Optional[SM64MacroObject]:
@@ -30,6 +33,8 @@ def try_parse_macro_object(line: str, level_name: str) -> Optional[SM64MacroObje
             f"Expected {expected} args in {macro}, got {len(line_parts)}: "
             f"{line.strip()}"
         )
+    # MACRO_OBJECT carries no param; MACRO_OBJECT_WITH_BHV_PARAM adds it last.
+    bhv_param = parse_behavior_param(line_parts[5] if has_bhv_param else "0")
     return SM64MacroObject(
         macro_name=line_parts[0],
         level=level_name,
@@ -37,5 +42,6 @@ def try_parse_macro_object(line: str, level_name: str) -> Optional[SM64MacroObje
         pos_x=int(line_parts[2]),
         pos_y=int(line_parts[3]),
         pos_z=int(line_parts[4]),
-        # TODO: bhv param
+        bhv_param=bhv_param.raw,
+        bhv_param_value=bhv_param.value,
     )

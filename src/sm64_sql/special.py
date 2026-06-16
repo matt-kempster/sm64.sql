@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+from sm64_sql.behavior_param import parse_behavior_param
 from sm64_sql.parse_utils import (
     extract_macro_args,
     parse_c_enum,
@@ -38,6 +39,8 @@ class SM64SpecialObject:
     pos_y: int
     pos_z: int
     yaw: int  # 0 when the placement macro carries no yaw
+    bhv_param: str  # per-placement param, or "0" when the macro carries none
+    bhv_param_value: Optional[int]  # resolved value, or NULL if symbolic
 
 
 def parse_special_presets(data_path: Path, names_path: Path) -> List[SM64SpecialPreset]:
@@ -96,6 +99,8 @@ def parse_special_objects(
             if len(args) < 4:
                 raise ValueError(f"Too few args in {macro}: {line}")
             yaw = int(args[4]) if len(args) >= 5 else 0
+            # Only SPECIAL_OBJECT_WITH_YAW_AND_PARAM has a 6th (param) arg.
+            bhv_param = parse_behavior_param(args[5] if len(args) >= 6 else "0")
             special_objects.append(
                 SM64SpecialObject(
                     preset_name=args[0],
@@ -106,6 +111,8 @@ def parse_special_objects(
                     pos_y=int(args[2]),
                     pos_z=int(args[3]),
                     yaw=yaw,
+                    bhv_param=bhv_param.raw,
+                    bhv_param_value=bhv_param.value,
                 )
             )
             break

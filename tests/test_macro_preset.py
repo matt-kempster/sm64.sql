@@ -61,12 +61,18 @@ def test_parse_macro_presets(tmp_path):
     assert first.macro_name == "macro_yellow_coin_1"
     assert first.behavior == "bhvYellowCoin"
     assert first.model_name == "MODEL_YELLOW_COIN"
+    assert first.param == "0"
+    assert first.param_value == 0
 
     # A `// unused` line comment must not break parsing.
     assert presets[1].macro_name == "macro_yellow_coin_2"
     assert presets[1].behavior == "bhvOneCoin"
 
     # A `|`-joined param expression stays in one field, so the row still has
-    # exactly three columns.
+    # exactly three columns; the symbolic value is kept but not resolved.
     assert presets[2].macro_name == "macro_coin_line_horizontal"
     assert presets[2].model_name == "MODEL_NONE"
+    assert presets[2].param == (
+        "COIN_FORMATION_BP_LINE_HORIZONTAL | COIN_FORMATION_BP_FLAG_FLYING"
+    )
+    assert presets[2].param_value is None
