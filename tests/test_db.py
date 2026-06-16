@@ -1,5 +1,6 @@
 import sqlite3
 
+from sm64_sql.behavior import SM64Behavior
 from sm64_sql.course import SM64Course
 from sm64_sql.db import write_to_db
 from sm64_sql.dialog import SM64Dialog
@@ -101,6 +102,9 @@ def _everything():
                 yaw=192,
             )
         ],
+        sm64_behaviors=[
+            SM64Behavior(behavior_name="bhvGoomba", obj_list="OBJ_LIST_PUSHABLE")
+        ],
     )
 
 
@@ -132,4 +136,11 @@ def test_write_to_db_round_trip():
         "SELECT l.internal_name FROM object o " "JOIN level l ON o.level = l.folder"
     ).fetchone()
     assert level_join == ("BATTLE FIELD",)
+
+    # Objects join to the behavior table on the behavior symbol.
+    behavior_join = cur.execute(
+        "SELECT b.obj_list FROM object o "
+        "JOIN behavior b ON o.behavior = b.behavior_name"
+    ).fetchone()
+    assert behavior_join == ("OBJ_LIST_PUSHABLE",)
     conn.close()

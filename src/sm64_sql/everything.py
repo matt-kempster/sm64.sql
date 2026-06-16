@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Type
 
+from sm64_sql.behavior import SM64Behavior, parse_behaviors
 from sm64_sql.course import SM64Course, parse_courses
 from sm64_sql.dialog import SM64Dialog, parse_dialogs
 from sm64_sql.level import SM64Level, parse_levels
@@ -31,6 +32,7 @@ class SM64Everything:
     sm64_dialogs: List[SM64Dialog]
     sm64_special_presets: List[SM64SpecialPreset]
     sm64_special_objects: List[SM64SpecialObject]
+    sm64_behaviors: List[SM64Behavior]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -48,6 +50,7 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("dialog", SM64Dialog, "sm64_dialogs"),
     ("special_preset", SM64SpecialPreset, "sm64_special_presets"),
     ("special_object", SM64SpecialObject, "sm64_special_objects"),
+    ("behavior", SM64Behavior, "sm64_behaviors"),
 ]
 
 
@@ -153,6 +156,10 @@ def parse_repo(repo: Path) -> SM64Everything:
     sm64_special_presets = parse_special_presets(
         special_presets_file, special_preset_names_file
     )
+    sm64_behaviors = parse_behaviors(
+        repo / "include" / "behavior_data.h",
+        repo / "data" / "behavior_data.c",
+    )
     return SM64Everything(
         sm64_objects=sm64_objects,
         sm64_macro_objects=sm64_macro_objects,
@@ -164,4 +171,5 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_dialogs=sm64_dialogs,
         sm64_special_presets=sm64_special_presets,
         sm64_special_objects=sm64_special_objects,
+        sm64_behaviors=sm64_behaviors,
     )

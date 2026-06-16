@@ -38,6 +38,14 @@ def test_parse_repo_finds_entities(everything):
     assert len(everything.sm64_dialogs) > 0
     assert len(everything.sm64_special_presets) > 0
     assert len(everything.sm64_special_objects) > 0
+    assert len(everything.sm64_behaviors) > 0
+
+
+def test_object_behaviors_are_known(everything):
+    behavior_names = {b.behavior_name for b in everything.sm64_behaviors}
+    used = {obj.behavior for obj in everything.sm64_objects}
+    # Every behavior placed in a level should resolve to a known behavior.
+    assert used <= behavior_names
 
 
 def test_special_objects_reference_known_presets(everything):
