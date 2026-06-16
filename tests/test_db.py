@@ -1,5 +1,6 @@
 import sqlite3
 
+from sm64_sql.course import SM64Course
 from sm64_sql.db import write_to_db
 from sm64_sql.everything import SM64Everything
 from sm64_sql.level import SM64Level
@@ -54,6 +55,14 @@ def _everything():
                 folder="bob",
                 internal_name="BATTLE FIELD",
                 is_stub=False,
+            )
+        ],
+        sm64_courses=[
+            SM64Course(
+                course_name="COURSE_BOB",
+                display_name="Bob-omb Battlefield",
+                dance_cutscene=0x00022240,
+                is_bonus=False,
             )
         ],
     )

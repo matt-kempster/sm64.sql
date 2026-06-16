@@ -33,6 +33,14 @@ def test_parse_repo_finds_entities(everything):
     assert len(everything.sm64_models) > 0
     assert len(everything.sm64_macro_presets) > 0
     assert len(everything.sm64_levels) > 0
+    assert len(everything.sm64_courses) > 0
+
+
+def test_levels_reference_known_courses(everything):
+    course_names = {c.course_name for c in everything.sm64_courses}
+    level_courses = {lvl.course_name for lvl in everything.sm64_levels}
+    # Every course a level points at should be a defined course.
+    assert level_courses <= course_names
 
 
 def test_levels_have_folders_matching_object_levels(everything):
