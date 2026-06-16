@@ -18,6 +18,7 @@ from sm64_sql.special import (
     parse_special_objects,
     parse_special_presets,
 )
+from sm64_sql.warp import SM64InstantWarp, SM64Warp, parse_warps
 
 
 @dataclass
@@ -33,6 +34,8 @@ class SM64Everything:
     sm64_special_presets: List[SM64SpecialPreset]
     sm64_special_objects: List[SM64SpecialObject]
     sm64_behaviors: List[SM64Behavior]
+    sm64_warps: List[SM64Warp]
+    sm64_instant_warps: List[SM64InstantWarp]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -51,7 +54,20 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("special_preset", SM64SpecialPreset, "sm64_special_presets"),
     ("special_object", SM64SpecialObject, "sm64_special_objects"),
     ("behavior", SM64Behavior, "sm64_behaviors"),
+    ("warp", SM64Warp, "sm64_warps"),
+    ("instant_warp", SM64InstantWarp, "sm64_instant_warps"),
 ]
+
+
+@dataclass
+class _LevelData:
+    """Per-level rows gathered from a single level folder."""
+
+    objects: List[SM64Object]
+    macro_objects: List[SM64MacroObject]
+    special_objects: List[SM64SpecialObject]
+    warps: List[SM64Warp]
+    instant_warps: List[SM64InstantWarp]
 
 
 def area_from_path(path: Path) -> int:
@@ -89,16 +105,20 @@ def parse_macro_file(path: Path, level_name: str) -> List[SM64MacroObject]:
     return sm64_macro_objects
 
 
-def parse_level(
-    path: Path, special_preset_ids: Dict[str, int]
-) -> Tuple[List[SM64Object], List[SM64MacroObject], List[SM64SpecialObject]]:
-    sm64_objects = parse_levelscript(path / "script.c")
-    sm64_macro_objects = []
+def parse_level(path: Path, special_preset_ids: Dict[str, int]) -> _LevelData:
+    script = path / "script.c"
+    objects = parse_levelscript(script) if script.is_file() else []
+    warps, instant_warps = (
+        parse_warps(script, path.name) if script.is_file() else ([], [])
+    )
+
+    macro_objects = []
     for macro_file in path.glob("**/macro.inc.c"):
-        sm64_macro_objects.extend(parse_macro_file(macro_file, path.name))
-    sm64_special_objects = []
+        macro_objects.extend(parse_macro_file(macro_file, path.name))
+
+    special_objects = []
     for collision_file in path.glob("**/collision.inc.c"):
-        sm64_special_objects.extend(
+        special_objects.extend(
             parse_special_objects(
                 collision_file,
                 path.name,
@@ -106,7 +126,13 @@ def parse_level(
                 special_preset_ids,
             )
         )
-    return sm64_objects, sm64_macro_objects, sm64_special_objects
+    return _LevelData(
+        objects=objects,
+        macro_objects=macro_objects,
+        special_objects=special_objects,
+        warps=warps,
+        instant_warps=instant_warps,
+    )
 
 
 def parse_repo(repo: Path) -> SM64Everything:
@@ -118,14 +144,16 @@ def parse_repo(repo: Path) -> SM64Everything:
     sm64_objects = []
     sm64_macro_objects = []
     sm64_special_objects = []
+    sm64_warps = []
+    sm64_instant_warps = []
     for level_dir in (repo / "levels").iterdir():
         if level_dir.is_dir():
-            objects, macro_objects, special_objects = parse_level(
-                level_dir, special_preset_ids
-            )
-            sm64_objects.extend(objects)
-            sm64_macro_objects.extend(macro_objects)
-            sm64_special_objects.extend(special_objects)
+            level_data = parse_level(level_dir, special_preset_ids)
+            sm64_objects.extend(level_data.objects)
+            sm64_macro_objects.extend(level_data.macro_objects)
+            sm64_special_objects.extend(level_data.special_objects)
+            sm64_warps.extend(level_data.warps)
+            sm64_instant_warps.extend(level_data.instant_warps)
     model_ids_file = repo / "include" / "model_ids.h"
     sm64_models = parse_model_ids(model_ids_file)
     # The preset names live in the `enum MacroPresets` in macro_presets.h. The
@@ -172,4 +200,6 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_special_presets=sm64_special_presets,
         sm64_special_objects=sm64_special_objects,
         sm64_behaviors=sm64_behaviors,
+        sm64_warps=sm64_warps,
+        sm64_instant_warps=sm64_instant_warps,
     )

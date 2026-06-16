@@ -39,6 +39,18 @@ def test_parse_repo_finds_entities(everything):
     assert len(everything.sm64_special_presets) > 0
     assert len(everything.sm64_special_objects) > 0
     assert len(everything.sm64_behaviors) > 0
+    assert len(everything.sm64_warps) > 0
+    assert len(everything.sm64_instant_warps) > 0
+
+
+def test_warps_point_at_known_levels(everything):
+    level_names = {lvl.level_name for lvl in everything.sm64_levels}
+    dest_levels = {w.dest_level for w in everything.sm64_warps}
+    # The connectivity graph only references defined levels.
+    assert dest_levels <= level_names
+    # Area 0 is a level-global warp; in-area warps use the 1-based AREA index.
+    assert all(w.area >= 0 for w in everything.sm64_warps)
+    assert any(w.area >= 1 for w in everything.sm64_warps)
 
 
 def test_object_behaviors_are_known(everything):

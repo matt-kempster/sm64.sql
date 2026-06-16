@@ -12,6 +12,7 @@ from sm64_sql.model import SM64Model
 from sm64_sql.object import SM64Object
 from sm64_sql.sequence import SM64Sequence
 from sm64_sql.special import SM64SpecialObject, SM64SpecialPreset
+from sm64_sql.warp import SM64InstantWarp, SM64Warp
 
 
 def _everything():
@@ -104,6 +105,29 @@ def _everything():
         ],
         sm64_behaviors=[
             SM64Behavior(behavior_name="bhvGoomba", obj_list="OBJ_LIST_PUSHABLE")
+        ],
+        sm64_warps=[
+            SM64Warp(
+                level="bob",
+                area=1,
+                node_id="WARP_NODE_SUCCESS",
+                dest_level="LEVEL_CASTLE",
+                dest_area=1,
+                dest_node="WARP_NODE_32",
+                flags="WARP_NO_CHECKPOINT",
+                is_painting=False,
+            )
+        ],
+        sm64_instant_warps=[
+            SM64InstantWarp(
+                level="thi",
+                area=1,
+                warp_index=2,
+                dest_area=3,
+                displace_x=10240,
+                displace_y=7168,
+                displace_z=10240,
+            )
         ],
     )
 
