@@ -122,6 +122,27 @@ def test_objects_reference_known_levels(everything):
     assert {"bob", "jrb"} <= levels
 
 
+def test_star_and_course_names(everything):
+    stars = everything.sm64_stars
+    course_names = everything.sm64_course_names
+    # 15 main courses x 6 acts = 90 act stars, plus the bonus-course stars.
+    assert sum(1 for s in stars if s.kind == "main") == 90
+    assert any(s.kind == "secret" for s in stars)
+    # A famous one, in the right place.
+    rolling_rocks = [s for s in stars if s.name == "WATCH FOR ROLLING ROCKS"]
+    assert len(rolling_rocks) == 1
+    assert rolling_rocks[0].course_name == "COURSE_HMC"
+    assert rolling_rocks[0].act == 6
+
+    # Every star/course name points at a course that exists in the course table.
+    courses = {c.course_name for c in everything.sm64_courses}
+    assert {s.course_name for s in stars} <= courses
+    assert {c.course_name for c in course_names} <= courses
+    # Main courses keep their 1-15 number; bonus courses use 0.
+    numbers = {c.number for c in course_names}
+    assert 1 in numbers and 15 in numbers and 0 in numbers
+
+
 def test_macro_objects_include_alignment_padded_rows(everything):
     # Regression guard: the decomp aligns macro names with spaces before "(",
     # e.g. `MACRO_OBJECT   (...)`. Those rows must be parsed, not dropped. Most

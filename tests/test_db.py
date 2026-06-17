@@ -3,6 +3,7 @@ import sqlite3
 from sm64_sql.area import SM64Area
 from sm64_sql.behavior import SM64Behavior
 from sm64_sql.course import SM64Course
+from sm64_sql.course_text import SM64CourseName, SM64Star
 from sm64_sql.db import write_to_db
 from sm64_sql.dialog import SM64Dialog
 from sm64_sql.everything import SM64Everything
@@ -165,6 +166,19 @@ def _everything():
                 bank="SOUND_BANK_ACTION",
             )
         ],
+        sm64_course_names=[
+            SM64CourseName(
+                course_name="COURSE_BOB", number=1, name="BOB-OMB BATTLEFIELD"
+            )
+        ],
+        sm64_stars=[
+            SM64Star(
+                course_name="COURSE_BOB",
+                kind="main",
+                act=6,
+                name="BEHIND CHAIN CHOMP'S GATE",
+            )
+        ],
     )
 
 
@@ -226,4 +240,14 @@ def test_write_to_db_round_trip():
         "JOIN dialog d ON a.dialog = d.dialog_name"
     ).fetchone()
     assert area_join == (0x03, "Hello there.")
+
+    # Stars join to the course they belong to (and to its display name).
+    star_join = cur.execute(
+        "SELECT c.display_name, s.act, s.name FROM star s "
+        "JOIN course c ON s.course_name = c.course_name"
+    ).fetchone()
+    assert star_join == ("Bob-omb Battlefield", 6, "BEHIND CHAIN CHOMP'S GATE")
+    # The course's in-game (file-select) name is captured too.
+    ingame = cur.execute("SELECT number, name FROM course_name").fetchone()
+    assert ingame == (1, "BOB-OMB BATTLEFIELD")
     conn.close()

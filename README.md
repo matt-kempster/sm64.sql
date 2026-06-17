@@ -9,9 +9,10 @@ reads those source files and writes the equivalent rows into a SQLite database,
 so questions like "which objects appear only in act 1?", "what music plays in
 each course?", or "where does each painting warp to?" become one-line queries.
 
-It currently populates 16 tables spanning placed objects, models, behaviors,
-levels/courses/areas, warps, dialog, music, animations, and sounds — see the
-[schema](#schema) and [example queries](#example-queries) below.
+It currently populates 18 tables spanning placed objects, models, behaviors,
+levels/courses/areas, warps, dialog, music, animations, sounds, and the in-game
+course and star names — see the [schema](#schema) and
+[example queries](#example-queries) below.
 
 ## Install
 
@@ -47,6 +48,8 @@ PYTHONPATH=src python -m sm64_sql --repo /path/to/sm64 --db sm64.db
 | `macro_preset` | `include/macro_presets.h` + `macro_presets.inc.c` | `macro_name`, `behavior`, `model_name`, `param`, `param_value` |
 | `level` | `levels/level_defines.h` | `level_name`, `course_name`, `folder`, `internal_name`, `is_stub` |
 | `course` | `levels/course_defines.h` | `course_name`, `display_name`, `dance_cutscene`, `is_bonus` |
+| `course_name` | `text/us/courses.h` | `course_name`, `number` (1-15, 0 for bonus), `name` (in-game file-select name) |
+| `star` | `text/us/courses.h` | `course_name`, `kind` (`main`/`secret`), `act` (1-6, 0 for secret), `name` |
 | `sequence` | `include/seq_ids.h` | `seq_name`, `seq_id` (music tracks) |
 | `dialog` | `text/us/dialogs.h` + `include/dialog_ids.h` | `dialog_name`, `dialog_id`, `lines_per_box`, `left_offset`, `width`, `text` |
 | `special_preset` | `include/special_presets.h` + `special_presets.inc.c` | `preset_name`, `preset_id`, `preset_type`, `default_param`, `model_name`, `behavior` |
@@ -133,6 +136,20 @@ SELECT level, behavior, bhv_param_1 AS star_index
 FROM object
 WHERE bhv_param_1 LIKE 'STAR_INDEX_%'
 ORDER BY level, bhv_param_1;
+
+-- Every main-course star name, by act.
+SELECT c.display_name, s.act, s.name
+FROM star s JOIN course c ON s.course_name = c.course_name
+WHERE s.kind = 'main'
+ORDER BY c.display_name, s.act;
+
+-- The payoff: which object awards each named star (star name <- STAR_INDEX byte).
+SELECT l.folder AS level, o.behavior, s.name AS star
+FROM object o
+JOIN level l ON o.level = l.folder
+JOIN star s ON s.course_name = l.course_name
+           AND s.act = CAST(replace(o.bhv_param_1, 'STAR_INDEX_ACT_', '') AS INTEGER)
+WHERE o.bhv_param_1 LIKE 'STAR_INDEX_ACT_%';
 ```
 
 ## How it works
@@ -166,11 +183,11 @@ mypy                   # type-check
 
 ## Status & limitations
 
-16 tables are populated from a full current `n64decomp/sm64` checkout: placed
+18 tables are populated from a full current `n64decomp/sm64` checkout: placed
 objects, macro objects and special objects; models, behaviors, macro/special
 presets; levels, courses and areas; warps and instant warps; dialog text, music
-sequences, Mario animations, and sound effects. Counts are cross-checked against
-the source.
+sequences, Mario animations, and sound effects; and the in-game course and star
+names. Counts are cross-checked against the source.
 
 Behavior parameters (`bhvParam` / preset `param`) are captured on the object,
 macro object, special object, and macro preset tables — split into their

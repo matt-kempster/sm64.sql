@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List
 
-from sm64_sql.parse_utils import parse_c_enum
+from sm64_sql.parse_utils import parse_c_enum, resolve_c_string
 
 
 @dataclass
@@ -13,65 +13,6 @@ class SM64Dialog:
     left_offset: int
     width: int
     text: str  # resolved dialog text (newlines preserved)
-
-
-def _unescape_c_string_body(body: str) -> str:
-    """Turn the inside of a C string literal into its actual characters.
-
-    Handles ``\\n`` / ``\\t`` escapes, escaped quotes/backslashes, and
-    ``\\``-at-end-of-line continuations (which join with no separator).
-    """
-    out: List[str] = []
-    i = 0
-    while i < len(body):
-        char = body[i]
-        if char == "\\" and i + 1 < len(body):
-            nxt = body[i + 1]
-            if nxt == "n":
-                out.append("\n")
-            elif nxt == "t":
-                out.append("\t")
-            elif nxt == "\n":
-                pass  # line continuation: join with nothing
-            else:
-                out.append(nxt)  # \" \\ and anything else: take literally
-            i += 2
-        else:
-            out.append(char)
-            i += 1
-    return "".join(out)
-
-
-def _resolve_c_string(expr: str, defines: Dict[str, str]) -> str:
-    """Resolve a C string expression: adjacent literals and macro names joined.
-
-    e.g. ``"his " COMRADES " in other"`` with COMRADES -> "comrades".
-    Unknown macros resolve to an empty string.
-    """
-    parts: List[str] = []
-    i = 0
-    while i < len(expr):
-        char = expr[i]
-        if char == '"':
-            i += 1
-            start = i
-            while i < len(expr):
-                if expr[i] == "\\":
-                    i += 2
-                    continue
-                if expr[i] == '"':
-                    break
-                i += 1
-            parts.append(_unescape_c_string_body(expr[start:i]))
-            i += 1  # skip closing quote
-        elif char.isalpha() or char == "_":
-            start = i
-            while i < len(expr) and (expr[i].isalnum() or expr[i] == "_"):
-                i += 1
-            parts.append(defines.get(expr[start:i], ""))
-        else:
-            i += 1  # whitespace / newlines between tokens
-    return "".join(parts)
 
 
 def _parse_string_defines(text: str) -> Dict[str, str]:
@@ -89,7 +30,7 @@ def _parse_string_defines(text: str) -> Dict[str, str]:
         name, sep, value = rest.partition(" ")
         value = value.strip()
         if sep and value.startswith('"'):
-            defines[name] = _resolve_c_string(value, defines)
+            defines[name] = resolve_c_string(value, defines)
     return defines
 
 
@@ -154,7 +95,7 @@ def parse_dialogs(dialogs_path: Path, dialog_ids_path: Path) -> List[SM64Dialog]
                 lines_per_box=int(meta[2]),
                 left_offset=int(meta[3]),
                 width=int(meta[4]),
-                text=_resolve_c_string(text_expr, defines),
+                text=resolve_c_string(text_expr, defines),
             )
         )
     return dialogs

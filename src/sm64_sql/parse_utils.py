@@ -104,6 +104,66 @@ def parse_c_enum(text: str, enum_name: str) -> List[Tuple[str, int]]:
     return entries
 
 
+def unescape_c_string_body(body: str) -> str:
+    """Turn the inside of a C string literal into its actual characters.
+
+    Handles ``\\n`` / ``\\t`` escapes, escaped quotes/backslashes, and
+    ``\\``-at-end-of-line continuations (which join with no separator).
+    """
+    out: List[str] = []
+    i = 0
+    while i < len(body):
+        char = body[i]
+        if char == "\\" and i + 1 < len(body):
+            nxt = body[i + 1]
+            if nxt == "n":
+                out.append("\n")
+            elif nxt == "t":
+                out.append("\t")
+            elif nxt == "\n":
+                pass  # line continuation: join with nothing
+            else:
+                out.append(nxt)  # \" \\ and anything else: take literally
+            i += 2
+        else:
+            out.append(char)
+            i += 1
+    return "".join(out)
+
+
+def resolve_c_string(expr: str, defines: Dict[str, str]) -> str:
+    """Resolve a C string expression: adjacent literals and macro names joined.
+
+    e.g. ``"his " COMRADES " in other"`` with COMRADES -> "comrades".
+    Unknown macros resolve to an empty string. A bare ``_("...")`` wrapper
+    resolves to just the string, since ``_`` is an unknown macro.
+    """
+    parts: List[str] = []
+    i = 0
+    while i < len(expr):
+        char = expr[i]
+        if char == '"':
+            i += 1
+            start = i
+            while i < len(expr):
+                if expr[i] == "\\":
+                    i += 2
+                    continue
+                if expr[i] == '"':
+                    break
+                i += 1
+            parts.append(unescape_c_string_body(expr[start:i]))
+            i += 1  # skip closing quote
+        elif char.isalpha() or char == "_":
+            start = i
+            while i < len(expr) and (expr[i].isalnum() or expr[i] == "_"):
+                i += 1
+            parts.append(defines.get(expr[start:i], ""))
+        else:
+            i += 1  # whitespace / newlines / parens between tokens
+    return "".join(parts)
+
+
 def extract_macro_args(line: str, macro_name: str) -> Optional[List[str]]:
     """Return the comment-stripped arguments of ``macro_name(...)`` in ``line``.
 
