@@ -2,6 +2,7 @@ import sqlite3
 
 from sm64_sql.area import SM64Area
 from sm64_sql.behavior import SM64Behavior
+from sm64_sql.behavior_command import SM64BehaviorCommand
 from sm64_sql.constant import SM64Constant
 from sm64_sql.course import SM64Course
 from sm64_sql.course_text import SM64CourseName, SM64Star
@@ -194,6 +195,43 @@ def _everything():
             SM64Constant(name="WARP_NODE_0A", value=0x0A, source="warp_nodes"),
             SM64Constant(name="STAR_INDEX_ACT_1", value=0, source="object_constants"),
         ],
+        sm64_behavior_commands=[
+            SM64BehaviorCommand(
+                behavior_name="bhvGoomba",
+                seq=0,
+                command="BEGIN",
+                args="OBJ_LIST_PUSHABLE",
+                args_json='["OBJ_LIST_PUSHABLE"]',
+            ),
+            SM64BehaviorCommand(
+                behavior_name="bhvGoomba",
+                seq=1,
+                command="CALL_NATIVE",
+                args="bhv_goomba_init",
+                args_json='["bhv_goomba_init"]',
+            ),
+            SM64BehaviorCommand(
+                behavior_name="bhvGoomba",
+                seq=2,
+                command="SPAWN_CHILD",
+                args="MODEL_GOOMBA, bhvGoomba",
+                args_json='["MODEL_GOOMBA", "bhvGoomba"]',
+            ),
+            SM64BehaviorCommand(
+                behavior_name="bhvGoomba",
+                seq=3,
+                command="SPAWN_CHILD_WITH_PARAM",
+                args="2, MODEL_GOOMBA, bhvGoomba",
+                args_json='["2", "MODEL_GOOMBA", "bhvGoomba"]',
+            ),
+            SM64BehaviorCommand(
+                behavior_name="bhvGoomba",
+                seq=4,
+                command="LOAD_COLLISION_DATA",
+                args="goomba_seg8_collision",
+                args_json='["goomba_seg8_collision"]',
+            ),
+        ],
     )
 
 
@@ -278,4 +316,42 @@ def test_write_to_db_round_trip():
         "SELECT value, source FROM constant WHERE name = 'WARP_NODE_0A'"
     ).fetchone()
     assert warp_node == (0x0A, "warp_nodes")
+
+    # The behavior_command backbone keeps every command in order.
+    assert cur.execute("SELECT COUNT(*) FROM behavior_command").fetchone()[0] == 5
+
+    # The behavior_native view exposes the C function a behavior calls, and it
+    # joins back to the behavior table.
+    native = cur.execute(
+        "SELECT n.func FROM behavior_native n "
+        "JOIN behavior b ON n.behavior_name = b.behavior_name"
+    ).fetchone()
+    assert native == ("bhv_goomba_init",)
+
+    # The behavior_spawn view splits the SPAWN_* opcodes into scalar columns and
+    # joins to both the model and the (self-referenced) behavior table.
+    spawns = cur.execute(
+        "SELECT s.kind, s.spawned_model, s.spawned_behavior, s.bhv_param "
+        "FROM behavior_spawn s "
+        "JOIN model m ON s.spawned_model = m.model_name "
+        "JOIN behavior b ON s.spawned_behavior = b.behavior_name "
+        "ORDER BY s.seq"
+    ).fetchall()
+    assert spawns == [
+        ("child", "MODEL_GOOMBA", "bhvGoomba", None),
+        ("child_with_param", "MODEL_GOOMBA", "bhvGoomba", "2"),
+    ]
+
+    # The behavior_resource view exposes loaded asset symbols by kind.
+    resource = cur.execute(
+        "SELECT kind, symbol FROM behavior_resource WHERE behavior_name = 'bhvGoomba'"
+    ).fetchone()
+    assert resource == ("collision", "goomba_seg8_collision")
+
+    # The door left open: find a command referencing a symbol in ANY arg slot.
+    any_slot = cur.execute(
+        "SELECT DISTINCT bc.command FROM behavior_command bc, json_each(bc.args_json) "
+        "WHERE json_each.value = 'bhvGoomba' ORDER BY bc.command"
+    ).fetchall()
+    assert any_slot == [("SPAWN_CHILD",), ("SPAWN_CHILD_WITH_PARAM",)]
     conn.close()

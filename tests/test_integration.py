@@ -4,11 +4,14 @@ Set the SM64_DECOMP_PATH environment variable to the root of an
 n64decomp/sm64 checkout to enable these tests; otherwise they are skipped.
 """
 
+import json
 import os
+import sqlite3
 from pathlib import Path
 
 import pytest
 
+from sm64_sql.db import write_to_db
 from sm64_sql.everything import parse_repo
 
 _decomp_env = os.environ.get("SM64_DECOMP_PATH")
@@ -24,6 +27,14 @@ pytestmark = pytest.mark.skipif(
 def everything():
     assert _decomp is not None
     return parse_repo(_decomp)
+
+
+@pytest.fixture(scope="module")
+def conn(everything):
+    connection = sqlite3.connect(":memory:")
+    write_to_db(connection, everything)
+    yield connection
+    connection.close()
 
 
 def test_parse_repo_finds_entities(everything):
@@ -230,6 +241,72 @@ def test_signpost_params_join_to_dialog(everything):
     # Signposts carry a dialog id as their param, and it joins to a real dialog.
     assert signpost_dialogs
     assert signpost_dialogs <= dialog_names
+
+
+def test_behavior_commands_backbone(everything):
+    commands = everything.sm64_behavior_commands
+    # Hundreds of scripts, thousands of commands.
+    assert len(commands) > 3000
+    # Every command's args_json is valid JSON (a list of strings).
+    assert all(isinstance(json.loads(c.args_json), list) for c in commands)
+
+    # Most scripts correspond to a public behavior declared in the header.
+    behavior_names = {b.behavior_name for b in everything.sm64_behaviors}
+    command_behaviors = {c.behavior_name for c in commands}
+    assert len(command_behaviors & behavior_names) > 500
+    # The only extras are internal sub-scripts defined in behavior_data.c and
+    # CALL'd within it, but never exported in behavior_data.h — the command
+    # backbone captures these even though the behavior table cannot.
+    assert "bhvSunkenShipSetRotation" in command_behaviors - behavior_names
+
+    # bhvGoomba's commands start with BEGIN(OBJ_LIST_PUSHABLE) and are contiguous.
+    goomba = [c for c in commands if c.behavior_name == "bhvGoomba"]
+    assert goomba
+    assert [c.seq for c in goomba] == list(range(len(goomba)))
+    assert goomba[0].command == "BEGIN"
+    assert goomba[0].args == "OBJ_LIST_PUSHABLE"
+    assert any(
+        c.command == "CALL_NATIVE" and c.args == "bhv_goomba_update" for c in goomba
+    )
+
+
+def test_behavior_views_over_real_data(conn):
+    cur = conn.cursor()
+
+    # behavior_native: bhvGoomba calls its init and update functions.
+    funcs = {
+        row[0]
+        for row in cur.execute(
+            "SELECT func FROM behavior_native WHERE behavior_name = 'bhvGoomba'"
+        ).fetchall()
+    }
+    assert {"bhv_goomba_init", "bhv_goomba_update"} <= funcs
+
+    # behavior_spawn: Bowser spawns its flame/tail anchors; the children resolve
+    # to real behaviors (a self-join on the behavior table).
+    children = {
+        row[0]
+        for row in cur.execute(
+            "SELECT s.spawned_behavior FROM behavior_spawn s "
+            "JOIN behavior b ON s.spawned_behavior = b.behavior_name "
+            "WHERE s.behavior_name = 'bhvBowser'"
+        ).fetchall()
+    }
+    assert "bhvBowserBodyAnchor" in children
+
+    # Every spawned model the view reports joins to the global model table.
+    unknown_models = cur.execute(
+        "SELECT COUNT(*) FROM behavior_spawn s "
+        "LEFT JOIN model m ON s.spawned_model = m.model_name "
+        "WHERE s.spawned_model IS NOT NULL AND m.model_name IS NULL"
+    ).fetchone()[0]
+    assert unknown_models == 0
+
+    # behavior_resource: collision meshes are by far the most common resource.
+    collisions = cur.execute(
+        "SELECT COUNT(*) FROM behavior_resource WHERE kind = 'collision'"
+    ).fetchone()[0]
+    assert collisions > 50
 
 
 def test_resolved_param_value_packs_the_bytes(everything):

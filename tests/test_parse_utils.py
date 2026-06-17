@@ -1,5 +1,6 @@
 from sm64_sql.parse_utils import (
     evaluate_int,
+    extract_call,
     extract_macro_args,
     parse_c_defines,
     parse_c_enum,
@@ -7,6 +8,45 @@ from sm64_sql.parse_utils import (
     strip_block_comments,
     strip_comments_and_whitespace,
 )
+
+
+def test_extract_call_discovers_name_and_args():
+    assert extract_call("CALL_NATIVE(bhv_goomba_init),") == (
+        "CALL_NATIVE",
+        ["bhv_goomba_init"],
+    )
+
+
+def test_extract_call_no_args_is_empty_list():
+    # A no-argument call yields [], not [""].
+    assert extract_call("END_LOOP(),") == ("END_LOOP", [])
+
+
+def test_extract_call_allows_alignment_whitespace():
+    assert extract_call("BEGIN (OBJ_LIST_PUSHABLE),") == (
+        "BEGIN",
+        ["OBJ_LIST_PUSHABLE"],
+    )
+
+
+def test_extract_call_keeps_nested_parens_as_one_arg():
+    assert extract_call("OR_INT(oFlags, (A | B)),") == (
+        "OR_INT",
+        ["oFlags", "(A | B)"],
+    )
+
+
+def test_extract_call_strips_inline_block_comments():
+    assert extract_call("SET(/*x*/ 40, /*y*/ -400)") == ("SET", ["40", "-400"])
+
+
+def test_extract_call_rejects_non_calls():
+    assert extract_call("};") is None
+    assert extract_call("// a comment") is None
+    assert extract_call("") is None
+    assert extract_call("{") is None
+    # A leading non-identifier (digit) is not a macro call.
+    assert extract_call("123(x)") is None
 
 
 def test_split_top_level_plain():

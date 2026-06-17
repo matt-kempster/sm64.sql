@@ -3,7 +3,7 @@ import sqlite3
 import typing
 from typing import Any, Iterable, Optional, Tuple
 
-from sm64_sql.everything import ENTITY_TABLES, SM64Everything
+from sm64_sql.everything import ENTITY_TABLES, ENTITY_VIEWS, SM64Everything
 
 
 def get_sql_type(python_type: str) -> str:
@@ -87,4 +87,7 @@ def write_to_db(conn: sqlite3.Connection, everything: SM64Everything) -> None:
             dataclasses.fields(row_type),
             getattr(everything, attr),
         )
+    # Views are derived from the tables above, so create them last.
+    for _view_name, view_sql in ENTITY_VIEWS:
+        cursor.execute(view_sql)
     conn.commit()

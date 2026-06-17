@@ -82,8 +82,11 @@ constants resolve to numbers.
   `parse_utils.py` keeps a future swap cheap.
 - **Reach for tree-sitter when the scope grows** — multi-line macro calls,
   supporting many decomp forks with divergent formatting, or extracting much
-  more of the C (behavior scripts, geo layouts, collision, the level command
-  script) where the structure is genuinely nested and irregular. At that point
+  more of the C (geo layouts, collision, the level command script) where the
+  structure is genuinely nested and irregular. Behavior scripts turned out *not*
+  to need this: each command is a single-line macro call, so the line-oriented
+  parser handles them, storing each command's split arguments as a JSON array
+  (`behavior_command.py`) with the relations exposed as SQL views. At that point
   `tree-sitter-c` is clearly the right tool, and far better than libclang,
   because we want a tolerant CST over un-preprocessed source, not a semantic AST
   of a translation unit.

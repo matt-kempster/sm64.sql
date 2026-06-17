@@ -298,6 +298,52 @@ def resolve_c_string(expr: str, defines: Dict[str, str]) -> str:
     return "".join(parts)
 
 
+def extract_call(line: str) -> Optional[Tuple[str, List[str]]]:
+    """Extract a leading ``NAME(args)`` call from ``line``.
+
+    Returns ``(name, args)`` where ``name`` is the leading C identifier and
+    ``args`` are its top-level, comment-stripped arguments (an empty list for a
+    no-argument call like ``BEGIN_LOOP()``). Returns ``None`` when the line does
+    not begin with an identifier followed — allowing alignment whitespace — by a
+    parenthesised call.
+
+    Unlike :func:`extract_macro_args`, the macro name is *discovered* rather than
+    supplied, which suits a stream of heterogeneous commands (e.g. a behavior
+    script, where each line is a different opcode macro).
+    """
+    line = strip_block_comments(line).strip()
+    end = 0
+    while end < len(line) and (line[end].isalnum() or line[end] == "_"):
+        end += 1
+    name = line[:end]
+    if not name or not (name[0].isalpha() or name[0] == "_"):
+        return None
+    start = end
+    while start < len(line) and line[start] in " \t":
+        start += 1
+    if start >= len(line) or line[start] != "(":
+        return None
+
+    depth = 0
+    close = -1
+    for index in range(start, len(line)):
+        char = line[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                close = index
+                break
+    if close == -1:
+        return None
+
+    inner = line[start + 1 : close].strip()
+    if not inner:
+        return name, []
+    return name, [part.strip() for part in split_top_level(inner, ",")]
+
+
 def extract_macro_args(line: str, macro_name: str) -> Optional[List[str]]:
     """Return the comment-stripped arguments of ``macro_name(...)`` in ``line``.
 

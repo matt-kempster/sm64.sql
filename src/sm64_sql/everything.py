@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Tuple, Type
 
 from sm64_sql.area import SM64Area, parse_areas
 from sm64_sql.behavior import SM64Behavior, parse_behaviors
+from sm64_sql.behavior_command import SM64BehaviorCommand, parse_behavior_commands
 from sm64_sql.constant import SM64Constant, parse_constants
 from sm64_sql.course import SM64Course, parse_courses
 from sm64_sql.course_text import SM64CourseName, SM64Star, parse_course_text
@@ -49,6 +50,7 @@ class SM64Everything:
     sm64_stars: List[SM64Star]
     sm64_model_loads: List[SM64ModelLoad]
     sm64_constants: List[SM64Constant]
+    sm64_behavior_commands: List[SM64BehaviorCommand]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -76,6 +78,68 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("star", SM64Star, "sm64_stars"),
     ("model_load", SM64ModelLoad, "sm64_model_loads"),
     ("constant", SM64Constant, "sm64_constants"),
+    ("behavior_command", SM64BehaviorCommand, "sm64_behavior_commands"),
+]
+
+
+# SQL views derived from the materialized tables. The behavior_command backbone
+# stores each command's arguments as a JSON array (args_json); these views pull
+# the high-value relations out of the opcodes that carry them, exposing plain
+# scalar columns that join like every other table. The split was already done in
+# the parser, so the views only select positions — no fragile SQL string-cutting.
+# db.write_to_db creates these after the tables are populated.
+ENTITY_VIEWS: List[Tuple[str, str]] = [
+    # What each behavior spawns: SPAWN_CHILD / SPAWN_OBJ take (model, behavior);
+    # SPAWN_CHILD_WITH_PARAM takes (bhvParam, model, behavior).
+    (
+        "behavior_spawn",
+        """
+        CREATE VIEW behavior_spawn AS
+        SELECT behavior_name, seq,
+               CASE command WHEN 'SPAWN_OBJ' THEN 'obj' ELSE 'child' END AS kind,
+               json_extract(args_json, '$[0]') AS spawned_model,
+               json_extract(args_json, '$[1]') AS spawned_behavior,
+               NULL AS bhv_param
+        FROM behavior_command
+        WHERE command IN ('SPAWN_CHILD', 'SPAWN_OBJ')
+        UNION ALL
+        SELECT behavior_name, seq,
+               'child_with_param' AS kind,
+               json_extract(args_json, '$[1]') AS spawned_model,
+               json_extract(args_json, '$[2]') AS spawned_behavior,
+               json_extract(args_json, '$[0]') AS bhv_param
+        FROM behavior_command
+        WHERE command = 'SPAWN_CHILD_WITH_PARAM'
+        """,
+    ),
+    # The native C function(s) each behavior runs (its init/loop/update code).
+    (
+        "behavior_native",
+        """
+        CREATE VIEW behavior_native AS
+        SELECT behavior_name, seq, json_extract(args_json, '$[0]') AS func
+        FROM behavior_command
+        WHERE command = 'CALL_NATIVE'
+        """,
+    ),
+    # Asset symbols a behavior pulls in: animation set, collision mesh, model.
+    (
+        "behavior_resource",
+        """
+        CREATE VIEW behavior_resource AS
+        SELECT behavior_name, seq, 'animation' AS kind,
+               json_extract(args_json, '$[1]') AS symbol
+        FROM behavior_command WHERE command = 'LOAD_ANIMATIONS'
+        UNION ALL
+        SELECT behavior_name, seq, 'collision' AS kind,
+               json_extract(args_json, '$[0]') AS symbol
+        FROM behavior_command WHERE command = 'LOAD_COLLISION_DATA'
+        UNION ALL
+        SELECT behavior_name, seq, 'model' AS kind,
+               json_extract(args_json, '$[0]') AS symbol
+        FROM behavior_command WHERE command = 'SET_MODEL'
+        """,
+    ),
 ]
 
 
@@ -219,9 +283,15 @@ def parse_repo(repo: Path) -> SM64Everything:
     sm64_special_presets = parse_special_presets(
         special_presets_file, special_preset_names_file
     )
+    behavior_data_c = repo / "data" / "behavior_data.c"
     sm64_behaviors = parse_behaviors(
         repo / "include" / "behavior_data.h",
-        repo / "data" / "behavior_data.c",
+        behavior_data_c,
+    )
+    # The ordered command stream of every behavior script (the backbone the
+    # behavior_spawn / behavior_native / behavior_resource views read from).
+    sm64_behavior_commands = (
+        parse_behavior_commands(behavior_data_c) if behavior_data_c.is_file() else []
     )
     sm64_mario_animations = parse_mario_animations(
         repo / "include" / "mario_animation_ids.h"
@@ -259,4 +329,5 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_stars=sm64_stars,
         sm64_model_loads=sm64_model_loads,
         sm64_constants=sm64_constants,
+        sm64_behavior_commands=sm64_behavior_commands,
     )
