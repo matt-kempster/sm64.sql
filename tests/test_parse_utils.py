@@ -58,9 +58,23 @@ def test_extract_macro_args_preserves_nested_parens():
     ]
 
 
+def test_extract_macro_args_allows_alignment_whitespace():
+    # The decomp pads the macro name to align the '(' across rows.
+    line = "MACRO_OBJECT               (/*preset*/ macro_box_star_act_3, 0, 1, 2, 3),"
+    assert extract_macro_args(line, "MACRO_OBJECT") == [
+        "macro_box_star_act_3",
+        "0",
+        "1",
+        "2",
+        "3",
+    ]
+
+
 def test_extract_macro_args_requires_exact_macro_name():
     # OBJECT must not match OBJECT_WITH_ACTS.
     assert extract_macro_args("OBJECT_WITH_ACTS(a, b)", "OBJECT") is None
+    # Even with alignment whitespace, the name boundary is still respected.
+    assert extract_macro_args("OBJECT_WITH_ACTS (a, b)", "OBJECT") is None
 
 
 def test_extract_macro_args_returns_none_for_other_lines():

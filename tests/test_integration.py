@@ -122,6 +122,19 @@ def test_objects_reference_known_levels(everything):
     assert {"bob", "jrb"} <= levels
 
 
+def test_macro_objects_include_alignment_padded_rows(everything):
+    # Regression guard: the decomp aligns macro names with spaces before "(",
+    # e.g. `MACRO_OBJECT   (...)`. Those rows must be parsed, not dropped. Most
+    # MACRO_OBJECT placements are padded this way, so the count is in the
+    # thousands, not the ~350 unpadded MACRO_OBJECT_WITH_BHV_PARAM rows.
+    assert len(everything.sm64_macro_objects) > 1000
+    # A concrete padded placement: BoB's act-3 star is a macro object box.
+    assert any(
+        mo.level == "bob" and mo.macro_name == "macro_box_star_act_3"
+        for mo in everything.sm64_macro_objects
+    )
+
+
 def test_behavior_params_are_captured(everything):
     objects = everything.sm64_objects
     # Every object records its behavior-param expression (defaults to "0").

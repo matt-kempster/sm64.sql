@@ -111,15 +111,24 @@ def extract_macro_args(line: str, macro_name: str) -> Optional[List[str]]:
     ``macro_name`` (so ``OBJECT`` does not match ``OBJECT_WITH_ACTS``). The
     arguments are split on top-level commas and individually stripped of block
     comments and whitespace.
+
+    The decomp aligns columns by padding the macro name with spaces before its
+    ``(`` (e.g. ``MACRO_OBJECT               (...)``), so whitespace between the
+    name and the opening paren is allowed.
     """
     line = line.strip()
-    prefix = macro_name + "("
-    if not line.startswith(prefix):
+    if not line.startswith(macro_name):
+        return None
+    start = len(macro_name)
+    while start < len(line) and line[start] in " \t":
+        start += 1
+    # The next non-space character must be the opening paren; this is what keeps
+    # ``OBJECT`` from matching ``OBJECT_WITH_ACTS`` (whose next char is ``_``).
+    if start >= len(line) or line[start] != "(":
         return None
 
     # Walk from the opening paren to its matching close paren so that trailing
     # tokens (e.g. a stray comma or comment) outside the call are ignored.
-    start = len(macro_name)
     depth = 0
     end = -1
     for index in range(start, len(line)):
