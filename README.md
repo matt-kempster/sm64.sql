@@ -9,9 +9,9 @@ reads those source files and writes the equivalent rows into a SQLite database,
 so questions like "which objects appear only in act 1?", "what music plays in
 each course?", or "where does each painting warp to?" become one-line queries.
 
-It currently populates 18 tables spanning placed objects, models, behaviors,
-levels/courses/areas, warps, dialog, music, animations, sounds, and the in-game
-course and star names — see the [schema](#schema) and
+It currently populates 19 tables spanning placed objects, models and per-level
+model loads, behaviors, levels/courses/areas, warps, dialog, music, animations,
+sounds, and the in-game course and star names — see the [schema](#schema) and
 [example queries](#example-queries) below.
 
 ## Install
@@ -45,6 +45,7 @@ PYTHONPATH=src python -m sm64_sql --repo /path/to/sm64 --db sm64.db
 | `object` | `levels/*/script.c` | `model_name`, `level`, `initial_x/y/z`, `initial_rot_x/y/z`, `bhv_param`, `bhv_param_value`, `bhv_param_1` … `bhv_param_4`, `behavior`, `in_act_1` … `in_act_6` |
 | `macro_object` | `levels/**/macro.inc.c` | `macro_name`, `level`, `yaw`, `pos_x/y/z`, `bhv_param`, `bhv_param_value` |
 | `model` | `include/model_ids.h` | `model_name`, `model_id` |
+| `model_load` | `levels/*/script.c` + `levels/scripts.c` | `level` (`common` = shared), `model_name`, `geo`, `layer`, `kind` (`geo`/`dl`) |
 | `macro_preset` | `include/macro_presets.h` + `macro_presets.inc.c` | `macro_name`, `behavior`, `model_name`, `param`, `param_value` |
 | `level` | `levels/level_defines.h` | `level_name`, `course_name`, `folder`, `internal_name`, `is_stub` |
 | `course` | `levels/course_defines.h` | `course_name`, `display_name`, `dance_cutscene`, `is_bonus` |
@@ -150,6 +151,11 @@ JOIN level l ON o.level = l.folder
 JOIN star s ON s.course_name = l.course_name
            AND s.act = CAST(replace(o.bhv_param_1, 'STAR_INDEX_ACT_', '') AS INTEGER)
 WHERE o.bhv_param_1 LIKE 'STAR_INDEX_ACT_%';
+
+-- One model slot is reused per level: what geo is MODEL_LEVEL_GEOMETRY_03 in each?
+SELECT level, geo FROM model_load
+WHERE model_name = 'MODEL_LEVEL_GEOMETRY_03' AND level <> 'common'
+ORDER BY level;
 ```
 
 ## How it works
@@ -183,11 +189,11 @@ mypy                   # type-check
 
 ## Status & limitations
 
-18 tables are populated from a full current `n64decomp/sm64` checkout: placed
-objects, macro objects and special objects; models, behaviors, macro/special
-presets; levels, courses and areas; warps and instant warps; dialog text, music
-sequences, Mario animations, and sound effects; and the in-game course and star
-names. Counts are cross-checked against the source.
+19 tables are populated from a full current `n64decomp/sm64` checkout: placed
+objects, macro objects and special objects; models and per-level model loads,
+behaviors, macro/special presets; levels, courses and areas; warps and instant
+warps; dialog text, music sequences, Mario animations, and sound effects; and
+the in-game course and star names. Counts are cross-checked against the source.
 
 Behavior parameters (`bhvParam` / preset `param`) are captured on the object,
 macro object, special object, and macro preset tables — split into their
@@ -201,7 +207,7 @@ Not yet captured (contributions welcome):
 - Geo layouts, collision geometry, trajectories, and the level command script
   flow (jumps/loops) are not extracted — see the geometry note in the project
   brief; these are intentionally out of scope.
-- Models are limited to `model_ids.h`; per-level geometry models defined
-  elsewhere are not included.
+- The `geo` symbols in `model_load` are recorded as names; the geo layouts they
+  point at are not parsed (out of scope, as above).
 - A few values are kept verbatim rather than resolved: e.g. an area whose music
   is `SEQ_x | SEQ_VARIATION` won't join to `sequence` by name.

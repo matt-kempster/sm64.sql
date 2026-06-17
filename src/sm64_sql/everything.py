@@ -12,6 +12,7 @@ from sm64_sql.macro_object import SM64MacroObject, try_parse_macro_object
 from sm64_sql.macro_preset import SM64MacroPreset, parse_macro_presets
 from sm64_sql.mario_animation import SM64MarioAnimation, parse_mario_animations
 from sm64_sql.model import SM64Model, parse_model_ids
+from sm64_sql.model_load import SM64ModelLoad, parse_model_loads
 from sm64_sql.object import SM64Object, try_parse_object
 from sm64_sql.parse_utils import parse_c_enum
 from sm64_sql.sequence import SM64Sequence, parse_sequences
@@ -45,6 +46,7 @@ class SM64Everything:
     sm64_sounds: List[SM64Sound]
     sm64_course_names: List[SM64CourseName]
     sm64_stars: List[SM64Star]
+    sm64_model_loads: List[SM64ModelLoad]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -70,6 +72,7 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("sound", SM64Sound, "sm64_sounds"),
     ("course_name", SM64CourseName, "sm64_course_names"),
     ("star", SM64Star, "sm64_stars"),
+    ("model_load", SM64ModelLoad, "sm64_model_loads"),
 ]
 
 
@@ -83,6 +86,7 @@ class _LevelData:
     warps: List[SM64Warp]
     instant_warps: List[SM64InstantWarp]
     areas: List[SM64Area]
+    model_loads: List[SM64ModelLoad]
 
 
 def area_from_path(path: Path) -> int:
@@ -127,6 +131,7 @@ def parse_level(path: Path, special_preset_ids: Dict[str, int]) -> _LevelData:
         parse_warps(script, path.name) if script.is_file() else ([], [])
     )
     areas = parse_areas(script, path.name) if script.is_file() else []
+    model_loads = parse_model_loads(script, path.name) if script.is_file() else []
 
     macro_objects = []
     for macro_file in path.glob("**/macro.inc.c"):
@@ -149,6 +154,7 @@ def parse_level(path: Path, special_preset_ids: Dict[str, int]) -> _LevelData:
         warps=warps,
         instant_warps=instant_warps,
         areas=areas,
+        model_loads=model_loads,
     )
 
 
@@ -164,6 +170,7 @@ def parse_repo(repo: Path) -> SM64Everything:
     sm64_warps = []
     sm64_instant_warps = []
     sm64_areas = []
+    sm64_model_loads = []
     for level_dir in (repo / "levels").iterdir():
         if level_dir.is_dir():
             level_data = parse_level(level_dir, special_preset_ids)
@@ -173,6 +180,12 @@ def parse_repo(repo: Path) -> SM64Everything:
             sm64_warps.extend(level_data.warps)
             sm64_instant_warps.extend(level_data.instant_warps)
             sm64_areas.extend(level_data.areas)
+            sm64_model_loads.extend(level_data.model_loads)
+    # The shared levels/scripts.c loads the common models (Mario, effects, ...)
+    # for every level; record those under the "common" pseudo-level.
+    shared_script = repo / "levels" / "scripts.c"
+    if shared_script.is_file():
+        sm64_model_loads.extend(parse_model_loads(shared_script, "common"))
     model_ids_file = repo / "include" / "model_ids.h"
     sm64_models = parse_model_ids(model_ids_file)
     # The preset names live in the `enum MacroPresets` in macro_presets.h. The
@@ -236,4 +249,5 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_sounds=sm64_sounds,
         sm64_course_names=sm64_course_names,
         sm64_stars=sm64_stars,
+        sm64_model_loads=sm64_model_loads,
     )

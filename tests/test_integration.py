@@ -122,6 +122,23 @@ def test_objects_reference_known_levels(everything):
     assert {"bob", "jrb"} <= levels
 
 
+def test_model_loads(everything):
+    loads = everything.sm64_model_loads
+    assert len(loads) > 400
+    # Shared common loads (Mario etc.) are recorded under the "common" level.
+    assert any(m.level == "common" and m.model_name == "MODEL_MARIO" for m in loads)
+    # The same model slot binds to different geo per level (the model_ids.h gap).
+    geo03 = {m.geo for m in loads if m.model_name == "MODEL_LEVEL_GEOMETRY_03"}
+    assert len(geo03) > 1
+    # Geo loads have no layer; DL loads (present in scripts.c) keep theirs.
+    assert any(m.kind == "geo" and m.layer is None for m in loads)
+    dl = [m for m in loads if m.kind == "dl"]
+    assert dl and all(m.layer for m in dl)
+    # Loaded models resolve to the global model table.
+    model_names = {m.model_name for m in everything.sm64_models}
+    assert any(m.model_name in model_names for m in loads)
+
+
 def test_star_and_course_names(everything):
     stars = everything.sm64_stars
     course_names = everything.sm64_course_names

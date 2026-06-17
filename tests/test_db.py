@@ -12,6 +12,7 @@ from sm64_sql.macro_object import SM64MacroObject
 from sm64_sql.macro_preset import SM64MacroPreset
 from sm64_sql.mario_animation import SM64MarioAnimation
 from sm64_sql.model import SM64Model
+from sm64_sql.model_load import SM64ModelLoad
 from sm64_sql.object import SM64Object
 from sm64_sql.sequence import SM64Sequence
 from sm64_sql.sound import SM64Sound
@@ -179,6 +180,15 @@ def _everything():
                 name="BEHIND CHAIN CHOMP'S GATE",
             )
         ],
+        sm64_model_loads=[
+            SM64ModelLoad(
+                level="bob",
+                model_name="MODEL_GOOMBA",
+                geo="goomba_geo",
+                layer=None,
+                kind="geo",
+            )
+        ],
     )
 
 
@@ -250,4 +260,11 @@ def test_write_to_db_round_trip():
     # The course's in-game (file-select) name is captured too.
     ingame = cur.execute("SELECT number, name FROM course_name").fetchone()
     assert ingame == (1, "BOB-OMB BATTLEFIELD")
+
+    # A model load joins to the global model table and stores NULL for layer.
+    model_load = cur.execute(
+        "SELECT ml.geo, ml.layer, m.model_id FROM model_load ml "
+        "JOIN model m ON ml.model_name = m.model_name"
+    ).fetchone()
+    assert model_load == ("goomba_geo", None, 0x54)
     conn.close()
