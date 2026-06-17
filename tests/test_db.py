@@ -2,6 +2,7 @@ import sqlite3
 
 from sm64_sql.area import SM64Area
 from sm64_sql.behavior import SM64Behavior
+from sm64_sql.constant import SM64Constant
 from sm64_sql.course import SM64Course
 from sm64_sql.course_text import SM64CourseName, SM64Star
 from sm64_sql.db import write_to_db
@@ -189,6 +190,10 @@ def _everything():
                 kind="geo",
             )
         ],
+        sm64_constants=[
+            SM64Constant(name="WARP_NODE_0A", value=0x0A, source="warp_nodes"),
+            SM64Constant(name="STAR_INDEX_ACT_1", value=0, source="object_constants"),
+        ],
     )
 
 
@@ -267,4 +272,10 @@ def test_write_to_db_round_trip():
         "JOIN model m ON ml.model_name = m.model_name"
     ).fetchone()
     assert model_load == ("goomba_geo", None, 0x54)
+
+    # Named constants round-trip and resolve a symbol to its integer value.
+    warp_node = cur.execute(
+        "SELECT value, source FROM constant WHERE name = 'WARP_NODE_0A'"
+    ).fetchone()
+    assert warp_node == (0x0A, "warp_nodes")
     conn.close()

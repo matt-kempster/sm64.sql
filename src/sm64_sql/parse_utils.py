@@ -1,4 +1,5 @@
-from typing import Dict, List, Optional, Tuple
+import ast
+from typing import Callable, Dict, List, Optional, Tuple
 
 
 def strip_block_comments(line: str) -> str:
@@ -101,6 +102,139 @@ def parse_c_enum(text: str, enum_name: str) -> List[Tuple[str, int]]:
             entries.append((name, value))
             seen[name] = value
             value += 1
+    return entries
+
+
+class _UnresolvableExpr(Exception):
+    """Raised when a C expression cannot be reduced to an integer."""
+
+
+def _eval_int_node(
+    node: ast.AST,
+    symbols: Dict[str, int],
+    functions: Dict[str, Callable[..., int]],
+) -> int:
+    if isinstance(node, ast.Expression):
+        return _eval_int_node(node.body, symbols, functions)
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, int) and not isinstance(node.value, bool):
+            return node.value
+        raise _UnresolvableExpr
+    if isinstance(node, ast.Num):  # pragma: no cover - legacy node on old pythons
+        if isinstance(node.n, int) and not isinstance(node.n, bool):
+            return node.n
+        raise _UnresolvableExpr
+    if isinstance(node, ast.Name):
+        if node.id in symbols:
+            return symbols[node.id]
+        raise _UnresolvableExpr
+    if isinstance(node, ast.BinOp):
+        left = _eval_int_node(node.left, symbols, functions)
+        right = _eval_int_node(node.right, symbols, functions)
+        op = node.op
+        if isinstance(op, ast.BitOr):
+            return left | right
+        if isinstance(op, ast.BitAnd):
+            return left & right
+        if isinstance(op, ast.BitXor):
+            return left ^ right
+        if isinstance(op, ast.LShift):
+            return left << right
+        if isinstance(op, ast.RShift):
+            return left >> right
+        if isinstance(op, ast.Add):
+            return left + right
+        if isinstance(op, ast.Sub):
+            return left - right
+        if isinstance(op, ast.Mult):
+            return left * right
+        if isinstance(op, (ast.Div, ast.FloorDiv)) and right != 0:
+            return left // right
+        if isinstance(op, ast.Mod) and right != 0:
+            return left % right
+        raise _UnresolvableExpr
+    if isinstance(node, ast.UnaryOp):
+        if isinstance(node.op, ast.USub):
+            return -_eval_int_node(node.operand, symbols, functions)
+        if isinstance(node.op, ast.UAdd):
+            return +_eval_int_node(node.operand, symbols, functions)
+        if isinstance(node.op, ast.Invert):
+            return ~_eval_int_node(node.operand, symbols, functions)
+        raise _UnresolvableExpr
+    if isinstance(node, ast.Call):
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in functions:
+            args = [_eval_int_node(a, symbols, functions) for a in node.args]
+            return functions[func.id](*args)
+        raise _UnresolvableExpr
+    raise _UnresolvableExpr
+
+
+def evaluate_int(
+    expr: str,
+    symbols: Optional[Dict[str, int]] = None,
+    functions: Optional[Dict[str, Callable[..., int]]] = None,
+) -> Optional[int]:
+    """Evaluate an integer C expression, or return None if it cannot be reduced.
+
+    Understands integer literals (decimal/hex), the usual bitwise/arithmetic
+    operators and parentheses, identifiers resolved via ``symbols``, and
+    function-like macros supplied in ``functions`` (e.g. the ``BPARAMn`` packers).
+    Anything else — an unknown name, a string, a cast — yields ``None``.
+    """
+    try:
+        tree = ast.parse(expr, mode="eval")
+        return _eval_int_node(tree, symbols or {}, functions or {})
+    except (_UnresolvableExpr, SyntaxError, ValueError, TypeError):
+        return None
+
+
+def _logical_lines(text: str) -> List[str]:
+    """Join backslash-continued lines so each ``#define`` is one logical line."""
+    lines: List[str] = []
+    buffer = ""
+    for raw in text.splitlines():
+        if raw.rstrip().endswith("\\"):
+            buffer += raw.rstrip()[:-1] + " "
+        else:
+            lines.append(buffer + raw)
+            buffer = ""
+    if buffer:
+        lines.append(buffer)
+    return lines
+
+
+def parse_c_defines(
+    text: str, base_symbols: Optional[Dict[str, int]] = None
+) -> List[Tuple[str, int]]:
+    """Harvest ``#define NAME <int expr>`` entries that reduce to an integer.
+
+    Definitions are read in order so later ones can reference earlier ones (and
+    anything in ``base_symbols``). Function-like macros (``NAME(args)``),
+    value-less guards, and non-integer values are skipped. Preprocessor
+    conditionals are ignored, which is correct for the linearly-defined headers
+    here (no name is defined twice).
+    """
+    symbols: Dict[str, int] = dict(base_symbols or {})
+    entries: List[Tuple[str, int]] = []
+    for line in _logical_lines(text):
+        line = strip_comments(line)
+        if not line.startswith("#define "):
+            continue
+        rest = line[len("#define ") :].strip()
+        end = 0
+        while end < len(rest) and (rest[end].isalnum() or rest[end] == "_"):
+            end += 1
+        name = rest[:end]
+        if not name or (end < len(rest) and rest[end] == "("):
+            continue  # empty, or a function-like macro
+        expr = rest[end:].strip()
+        if not expr:
+            continue  # a value-less guard such as the header's include guard
+        value = evaluate_int(expr, symbols)
+        if value is not None:
+            entries.append((name, value))
+            symbols[name] = value
     return entries
 
 

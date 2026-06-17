@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Tuple, Type
 
 from sm64_sql.area import SM64Area, parse_areas
 from sm64_sql.behavior import SM64Behavior, parse_behaviors
+from sm64_sql.constant import SM64Constant, parse_constants
 from sm64_sql.course import SM64Course, parse_courses
 from sm64_sql.course_text import SM64CourseName, SM64Star, parse_course_text
 from sm64_sql.dialog import SM64Dialog, parse_dialogs
@@ -47,6 +48,7 @@ class SM64Everything:
     sm64_course_names: List[SM64CourseName]
     sm64_stars: List[SM64Star]
     sm64_model_loads: List[SM64ModelLoad]
+    sm64_constants: List[SM64Constant]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -73,6 +75,7 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("course_name", SM64CourseName, "sm64_course_names"),
     ("star", SM64Star, "sm64_stars"),
     ("model_load", SM64ModelLoad, "sm64_model_loads"),
+    ("constant", SM64Constant, "sm64_constants"),
 ]
 
 
@@ -230,6 +233,11 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_course_names, sm64_stars = parse_course_text(courses_text_file)
     else:
         sm64_course_names, sm64_stars = [], []
+    # Named integer constants used by behavior params (WARP_NODE_*, STAR_INDEX_*).
+    sm64_constants = parse_constants(
+        repo / "include" / "object_constants.h",
+        repo / "src" / "game" / "level_update.h",
+    )
     return SM64Everything(
         sm64_objects=sm64_objects,
         sm64_macro_objects=sm64_macro_objects,
@@ -250,4 +258,5 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_course_names=sm64_course_names,
         sm64_stars=sm64_stars,
         sm64_model_loads=sm64_model_loads,
+        sm64_constants=sm64_constants,
     )

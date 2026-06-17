@@ -122,6 +122,33 @@ def test_objects_reference_known_levels(everything):
     assert {"bob", "jrb"} <= levels
 
 
+def test_constants_resolve_param_symbols(everything):
+    constants = {c.name: c for c in everything.sm64_constants}
+    assert len(constants) > 800
+    # Spot-check values from each source.
+    assert constants["WARP_NODE_0A"].value == 0x0A
+    assert constants["WARP_NODE_0A"].source == "warp_nodes"
+    assert constants["STAR_INDEX_ACT_3"].value == 2
+    assert constants["STAR_INDEX_ACT_3"].source == "object_constants"
+
+    # Every STAR_INDEX symbol used by a placed star object resolves.
+    used_star_indices = {
+        o.bhv_param_1
+        for o in everything.sm64_objects
+        if o.bhv_param_1 and o.bhv_param_1.startswith("STAR_INDEX_")
+    }
+    assert used_star_indices
+    assert used_star_indices <= set(constants)
+
+    # The warp-node bytes objects pass resolve too (the most common param symbol).
+    used_warp_nodes = {
+        o.bhv_param_2
+        for o in everything.sm64_objects
+        if o.bhv_param_2 and o.bhv_param_2.startswith("WARP_NODE_")
+    }
+    assert used_warp_nodes <= set(constants)
+
+
 def test_model_loads(everything):
     loads = everything.sm64_model_loads
     assert len(loads) > 400

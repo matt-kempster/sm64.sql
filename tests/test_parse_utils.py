@@ -1,5 +1,7 @@
 from sm64_sql.parse_utils import (
+    evaluate_int,
     extract_macro_args,
+    parse_c_defines,
     parse_c_enum,
     split_top_level,
     strip_block_comments,
@@ -107,3 +109,41 @@ def test_parse_c_enum_explicit_values_and_references():
 def test_parse_c_enum_ignores_other_enums():
     text = "enum Other {\n X\n};\nenum Wanted {\n Y\n};\n"
     assert parse_c_enum(text, "Wanted") == [("Y", 0)]
+
+
+def test_evaluate_int_literals_and_operators():
+    assert evaluate_int("0x40") == 0x40
+    assert evaluate_int("(1 << 4) | (1 << 0)") == 0x11
+    assert evaluate_int("-5 + 2 * 3") == 1
+
+
+def test_evaluate_int_resolves_symbols():
+    assert evaluate_int("A | B", {"A": 1, "B": 2}) == 3
+    # An unknown symbol cannot be resolved.
+    assert evaluate_int("A | MISSING", {"A": 1}) is None
+
+
+def test_evaluate_int_calls_supplied_functions():
+    funcs = {"SHL8": lambda v: v << 8}
+    assert evaluate_int("SHL8(3)", functions=funcs) == 0x300
+    # An unknown call is unresolvable.
+    assert evaluate_int("NOPE(3)") is None
+
+
+def test_parse_c_defines_basic_and_references():
+    text = (
+        "#ifndef GUARD_H\n"
+        "#define GUARD_H\n"  # value-less guard: skipped
+        "#define A 1\n"
+        "#define B 0x02\n"
+        "#define C (A | B)\n"  # references earlier defines
+        '#define NAME "str"\n'  # non-integer: skipped
+        "#define FN(x) ((x) << 2)\n"  # function-like: skipped
+        "#endif\n"
+    )
+    assert parse_c_defines(text) == [("A", 1), ("B", 2), ("C", 3)]
+
+
+def test_parse_c_defines_joins_continued_lines():
+    text = "#define MASK (1 \\\n    | 2 \\\n    | 4)\n"
+    assert parse_c_defines(text) == [("MASK", 7)]

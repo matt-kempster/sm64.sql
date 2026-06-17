@@ -26,14 +26,20 @@ this module keeps the four slots separate rather than only the combined value.
   slot (symbolic or numeric), or ``None`` when that slot is unused.
 """
 
-import ast
 from dataclasses import dataclass
 from typing import Dict, Optional
 
-from sm64_sql.parse_utils import extract_macro_args
+from sm64_sql.parse_utils import evaluate_int, extract_macro_args
 
 # BPARAMn macro -> the left bit-shift it applies (see module docstring).
 _BPARAM_SHIFT = {"BPARAM1": 24, "BPARAM2": 16, "BPARAM3": 8, "BPARAM4": 0}
+
+# BPARAMn as callable macros for the shared integer evaluator: each masks its
+# argument to a byte and shifts it into place.
+_BPARAM_FUNCS = {
+    name: (lambda shift: lambda value: (value & 0xFF) << shift)(shift)
+    for name, shift in _BPARAM_SHIFT.items()
+}
 
 
 @dataclass
@@ -44,10 +50,6 @@ class BehaviorParam:
     param2: Optional[str]  # argument inside BPARAM2(...) (the famous 2nd byte)
     param3: Optional[str]  # argument inside BPARAM3(...), or None
     param4: Optional[str]  # argument inside BPARAM4(...), or None
-
-
-class _Unresolved(Exception):
-    """Raised when an expression references a non-numeric (symbolic) value."""
 
 
 def _normalize(expr: str) -> str:
@@ -68,78 +70,19 @@ def _bparam_slots(expr: str) -> Dict[int, str]:
     return slots
 
 
-def _eval(node: ast.AST) -> int:
-    if isinstance(node, ast.Expression):
-        return _eval(node.body)
-    # ast.Num is the pre-3.8 spelling; ast.Constant is what 3.8+ produces.
-    if isinstance(node, ast.Constant):
-        if isinstance(node.value, int) and not isinstance(node.value, bool):
-            return node.value
-        raise _Unresolved
-    if isinstance(node, ast.Num):  # pragma: no cover - legacy node on old pythons
-        if isinstance(node.n, int) and not isinstance(node.n, bool):
-            return node.n
-        raise _Unresolved
-    if isinstance(node, ast.BinOp):
-        left, right = _eval(node.left), _eval(node.right)
-        if isinstance(node.op, ast.BitOr):
-            return left | right
-        if isinstance(node.op, ast.BitAnd):
-            return left & right
-        if isinstance(node.op, ast.BitXor):
-            return left ^ right
-        if isinstance(node.op, ast.LShift):
-            return left << right
-        if isinstance(node.op, ast.RShift):
-            return left >> right
-        if isinstance(node.op, ast.Add):
-            return left + right
-        if isinstance(node.op, ast.Sub):
-            return left - right
-        if isinstance(node.op, ast.Mult):
-            return left * right
-        raise _Unresolved
-    if isinstance(node, ast.UnaryOp):
-        if isinstance(node.op, ast.USub):
-            return -_eval(node.operand)
-        if isinstance(node.op, ast.UAdd):
-            return +_eval(node.operand)
-        if isinstance(node.op, ast.Invert):
-            return ~_eval(node.operand)
-        raise _Unresolved
-    if isinstance(node, ast.Call):
-        func = node.func
-        if (
-            isinstance(func, ast.Name)
-            and func.id in _BPARAM_SHIFT
-            and len(node.args) == 1
-        ):
-            return (_eval(node.args[0]) & 0xFF) << _BPARAM_SHIFT[func.id]
-        raise _Unresolved
-    # ast.Name (a symbolic constant) and anything else cannot be resolved.
-    raise _Unresolved
-
-
-def _evaluate(expr: str) -> Optional[int]:
-    """Resolve ``expr`` to an int, or return None if it uses symbolic names."""
-    try:
-        tree = ast.parse(expr, mode="eval")
-        return _eval(tree)
-    except (_Unresolved, SyntaxError, ValueError):
-        return None
-
-
 def parse_behavior_param(expr: str) -> BehaviorParam:
     """Parse a behavior-parameter expression into a :class:`BehaviorParam`.
 
     ``expr`` is the argument as written in the macro call. An empty or missing
-    expression is treated as ``"0"`` (the default the game uses).
+    expression is treated as ``"0"`` (the default the game uses). The value is
+    resolved only when the whole expression is numeric (the ``BPARAMn`` packers
+    are known to the evaluator); a symbolic constant leaves ``value`` None.
     """
     raw = _normalize(expr) or "0"
     slots = _bparam_slots(raw)
     return BehaviorParam(
         raw=raw,
-        value=_evaluate(raw),
+        value=evaluate_int(raw, functions=_BPARAM_FUNCS),
         param1=slots.get(1),
         param2=slots.get(2),
         param3=slots.get(3),

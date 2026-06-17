@@ -9,10 +9,11 @@ reads those source files and writes the equivalent rows into a SQLite database,
 so questions like "which objects appear only in act 1?", "what music plays in
 each course?", or "where does each painting warp to?" become one-line queries.
 
-It currently populates 19 tables spanning placed objects, models and per-level
+It currently populates 20 tables spanning placed objects, models and per-level
 model loads, behaviors, levels/courses/areas, warps, dialog, music, animations,
-sounds, and the in-game course and star names — see the [schema](#schema) and
-[example queries](#example-queries) below.
+sounds, the in-game course and star names, and the named constants behavior
+params use — see the [schema](#schema) and [example queries](#example-queries)
+below.
 
 ## Install
 
@@ -61,6 +62,7 @@ PYTHONPATH=src python -m sm64_sql --repo /path/to/sm64 --db sm64.db
 | `area` | `levels/*/script.c` | `level`, `area`, `geo`, `terrain_type`, `background_music`, `dialog` |
 | `mario_animation` | `include/mario_animation_ids.h` | `anim_name`, `anim_id` |
 | `sound` | `include/sounds.h` | `sound_name`, `sound_id`, `bank` |
+| `constant` | `include/object_constants.h` + `src/game/level_update.h` | `name`, `value`, `source` (`warp_nodes`/`object_constants`) |
 
 Names such as `MODEL_BOO`, `bhvGoomba`, and `macro_yellow_coin_2` are kept as
 the symbolic strings used in the source, so the tables join naturally on those
@@ -82,6 +84,10 @@ star index, an enemy size, and so on. The tables expose it three ways:
 - on `object`, `bhv_param_1` … `bhv_param_4` hold the argument written in each
   `BPARAMn` slot (`bhv_param_2` is the famous `oBhvParams2ndByte`), so a warp
   node or star index can be selected or joined directly.
+
+Those symbolic byte values (`WARP_NODE_0A`, `STAR_INDEX_ACT_3`,
+`GOOMBA_SIZE_HUGE`) are names; the `constant` table resolves each to its integer
+value, so you can join a param byte to its number.
 
 ## Example queries
 
@@ -156,6 +162,11 @@ WHERE o.bhv_param_1 LIKE 'STAR_INDEX_ACT_%';
 SELECT level, geo FROM model_load
 WHERE model_name = 'MODEL_LEVEL_GEOMETRY_03' AND level <> 'common'
 ORDER BY level;
+
+-- Resolve a symbolic param byte to its number via the constant table.
+SELECT o.level, o.behavior, o.bhv_param_2 AS warp_node, c.value
+FROM object o JOIN constant c ON o.bhv_param_2 = c.name
+WHERE o.bhv_param_2 LIKE 'WARP_NODE_%';
 ```
 
 ## How it works
@@ -189,21 +200,20 @@ mypy                   # type-check
 
 ## Status & limitations
 
-19 tables are populated from a full current `n64decomp/sm64` checkout: placed
+20 tables are populated from a full current `n64decomp/sm64` checkout: placed
 objects, macro objects and special objects; models and per-level model loads,
 behaviors, macro/special presets; levels, courses and areas; warps and instant
-warps; dialog text, music sequences, Mario animations, and sound effects; and
-the in-game course and star names. Counts are cross-checked against the source.
+warps; dialog text, music sequences, Mario animations, and sound effects; the
+in-game course and star names; and the named constants behavior params use.
+Counts are cross-checked against the source.
 
 Behavior parameters (`bhvParam` / preset `param`) are captured on the object,
 macro object, special object, and macro preset tables — split into their
-`BPARAM` byte slots and resolved to a number when the expression is numeric.
+`BPARAM` byte slots and resolved to a number when the expression is numeric. The
+symbolic byte values (`WARP_NODE_*`, `STAR_INDEX_*`, `GOOMBA_SIZE_*`, …) resolve
+to integers via the `constant` table.
 
 Not yet captured (contributions welcome):
-
-- Symbolic param constants (`WARP_NODE_*`, `STAR_INDEX_*`, `GOOMBA_SIZE_*`, …)
-  are kept as strings; resolving them to numbers would mean reading the
-  scattered `#define` tables (e.g. `include/object_constants.h`).
 - Geo layouts, collision geometry, trajectories, and the level command script
   flow (jumps/loops) are not extracted — see the geometry note in the project
   brief; these are intentionally out of scope.
