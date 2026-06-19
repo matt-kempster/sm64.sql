@@ -11,6 +11,7 @@ const MAX_DISPLAY_ROWS = 1000;
 let db = null; // active sql.js Database
 let originalBytes = null; // pristine copy, for "Reload data"
 let editor = null; // CodeMirror instance, or null if the CDN failed to load
+let schemaFks = { outgoing: {}, incoming: {} }; // declared foreign keys, both ways
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -255,7 +256,53 @@ function buildExamples() {
 
 // --- sidebar: schema -------------------------------------------------------
 
+// Read the database's declared foreign keys (via PRAGMA foreign_key_list) into
+// both directions: outgoing[t] = the parents t points at; incoming[t] = the
+// children that point at t. These drive the "joins" hints in the sidebar.
+function buildForeignKeys() {
+  const outgoing = {};
+  const incoming = {};
+  const tables = db.exec("SELECT name FROM sqlite_master WHERE type='table'");
+  if (!tables.length) return { outgoing, incoming };
+  tables[0].values.forEach(([t]) => {
+    const fk = db.exec(`PRAGMA foreign_key_list(${t})`);
+    if (!fk.length) return;
+    // columns: id, seq, table(parent), from(child col), to(parent col), ...
+    fk[0].values.forEach((row) => {
+      const parent = row[2];
+      const from = row[3];
+      const to = row[4];
+      (outgoing[t] = outgoing[t] || []).push({ from, parent, to });
+      (incoming[parent] = incoming[parent] || []).push({ child: t, from, to });
+    });
+  });
+  return { outgoing, incoming };
+}
+
+// A button that drops a ready JOIN between two tables into the editor and runs
+// it — turning a relationship into a runnable query in one click.
+function joinButton(label, title, sql) {
+  const b = document.createElement("button");
+  b.className = "fk-join";
+  b.textContent = label;
+  b.title = title;
+  b.addEventListener("click", (e) => {
+    e.preventDefault();
+    setSql(sql);
+    runQuery();
+  });
+  return b;
+}
+
+function joinSql(left, leftCol, right, rightCol) {
+  return (
+    `SELECT *\nFROM ${left}\n` +
+    `JOIN ${right} ON ${left}.${leftCol} = ${right}.${rightCol}\nLIMIT 20;`
+  );
+}
+
 function buildSchema() {
+  schemaFks = buildForeignKeys();
   const meta = db.exec(
     "SELECT name, type FROM sqlite_master WHERE type IN ('table','view') ORDER BY type, name"
   );
@@ -293,6 +340,12 @@ function schemaItem(name) {
   summary.appendChild(nameBtn);
   details.appendChild(summary);
 
+  // Outgoing foreign keys, indexed by the local column they sit on, so each
+  // column can show what it references (and click to join to it).
+  const outgoing = schemaFks.outgoing[name] || [];
+  const fkByCol = {};
+  outgoing.forEach((fk) => (fkByCol[fk.from] = fk));
+
   const cols = db.exec(`PRAGMA table_info(${name})`);
   const list = document.createElement("ul");
   list.className = "cols";
@@ -302,10 +355,43 @@ function schemaItem(name) {
       const cname = c[1];
       const ctype = c[2] || "";
       li.innerHTML = `<span class="col">${cname}</span> <span class="ctype">${ctype}</span>`;
+      const fk = fkByCol[cname];
+      if (fk) {
+        const ref = joinButton(
+          `→ ${fk.parent}.${fk.to}`,
+          `Join ${name} to ${fk.parent} on ${cname}`,
+          joinSql(name, cname, fk.parent, fk.to)
+        );
+        ref.classList.add("fk-ref");
+        li.appendChild(document.createTextNode(" "));
+        li.appendChild(ref);
+      }
       list.appendChild(li);
     });
   }
   details.appendChild(list);
+
+  // Incoming foreign keys: other tables whose column points at this one. This
+  // is the non-obvious direction ("what can I join this with?").
+  const incoming = schemaFks.incoming[name] || [];
+  if (incoming.length) {
+    const head = document.createElement("div");
+    head.className = "fk-head";
+    head.textContent = "Referenced by";
+    details.appendChild(head);
+    const wrap = document.createElement("div");
+    wrap.className = "fk-list";
+    incoming.forEach(({ child, from, to }) => {
+      wrap.appendChild(
+        joinButton(
+          `${child}.${from}`,
+          `Join ${name} to ${child} on ${from}`,
+          joinSql(name, to, child, from)
+        )
+      );
+    });
+    details.appendChild(wrap);
+  }
   return details;
 }
 

@@ -140,6 +140,40 @@ main { flex: 1; min-height: 0; display: flex; }
 .cols .col { font-family: var(--mono); }
 .cols .ctype { color: var(--muted); font-size: 11px; }
 
+/* foreign-key join hints */
+.fk-join {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--blue);
+  font: 600 11px var(--mono);
+  border-radius: 5px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+.fk-join:hover { background: #eef4ff; border-color: var(--blue); }
+.fk-ref {
+  border: none;
+  background: none;
+  padding: 0 0 0 2px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.fk-ref:hover { background: none; color: var(--blue); text-decoration: underline; }
+.fk-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin: 2px 0 4px 18px;
+}
+.fk-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 8px 18px;
+}
+
 /* ---------- workspace ---------- */
 .workspace {
   flex: 1;

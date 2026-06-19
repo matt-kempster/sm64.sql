@@ -31,6 +31,7 @@ Actions**.
 
 - `index.html` — page shell and tab layout
 - `app.js` — loads sql.js + the database, runs queries, renders results/schema
+  (the schema tree shows each table's declared foreign keys as one-click joins)
 - `map.js` — the Map tab: a top-down/front/side scatter of a level's objects
 - `heatmap.js` — the Heatmap tab: object × level/course crosstab
 - `treemap.js` — the Treemap tab: game object population as nested rectangles
@@ -43,3 +44,9 @@ layout + color scales), and [CodeMirror 5](https://codemirror.net/5/) (SQL
 highlighting + schema-aware autocomplete) from a CDN; everything else is local
 and dependency-free. The autocomplete table/column list is built from the live
 database schema. Each chart cell copies the JOIN behind it to the clipboard.
+
+In the Query tab's schema sidebar, expand a table to see its columns; foreign-key
+columns show what they reference (`→ parent.column`) and each table lists the
+tables that reference it under **Referenced by**. Clicking any of these drops a
+ready `JOIN` into the editor and runs it. The links come from the foreign keys
+declared in the generated schema (read via `PRAGMA foreign_key_list`).
