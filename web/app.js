@@ -420,7 +420,12 @@ function wireEvents() {
       $("#tab-" + tab.dataset.tab).classList.add("active");
       // Visual tabs need the panel visible to measure themselves, so they
       // render on show rather than on load.
-      const mods = { map: "SM64Map", heatmap: "SM64Heatmap", treemap: "SM64Treemap" };
+      const mods = {
+        map: "SM64Map",
+        heatmap: "SM64Heatmap",
+        treemap: "SM64Treemap",
+        graph: "SM64Graph",
+      };
       const mod = window[mods[tab.dataset.tab]];
       if (mod) mod.onShow();
     });

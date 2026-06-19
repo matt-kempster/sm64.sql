@@ -27,6 +27,7 @@
       <button class="tab" data-tab="map">Map</button>
       <button class="tab" data-tab="heatmap">Heatmap</button>
       <button class="tab" data-tab="treemap">Treemap</button>
+      <button class="tab" data-tab="graph">Graph</button>
     </nav>
   </header>
 
@@ -136,6 +137,34 @@
           placements query.</p>
       </div>
     </section>
+
+    <!-- ===================== GRAPH TAB ===================== -->
+    <section class="panel" id="tab-graph">
+      <div class="graph-wrap">
+        <div class="graph-controls">
+          <div class="legend" id="graph-legend"></div>
+          <label class="map-bg-toggle" id="graph-diff-label">
+            <input type="checkbox" id="graph-diff"> Highlight C-only spawns
+          </label>
+          <input type="search" id="graph-search" class="graph-search"
+                 placeholder="find an object…" autocomplete="off" />
+          <span class="status" id="graph-status"></span>
+        </div>
+        <div class="graph-stage" id="graph-stage">
+          <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="map-tooltip" id="graph-tooltip"></div>
+          <aside class="graph-dossier" id="graph-dossier" hidden></aside>
+        </div>
+        <p class="note">Every object is a node; edges are relations mined from the
+          behavior code — <strong>spawns</strong>, <strong>morphs&nbsp;into</strong>,
+          <strong>seeks</strong>. Node size is how often the object is placed in the
+          game; the small dashed-ring nodes are <em>ghosts</em> — spawned at runtime
+          but never placed. Toggle a relation in the legend, hover to focus a node's
+          neighbours, and click for its full dossier (with links to the decomp
+          source). <strong>Highlight C-only spawns</strong> lights up the spawns that
+          live only in C and are invisible to the bytecode.</p>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
@@ -157,5 +186,6 @@
   <script src="map.js"></script>
   <script src="heatmap.js"></script>
   <script src="treemap.js"></script>
+  <script src="graph.js"></script>
 </body>
 </html>

@@ -43,6 +43,10 @@ Actions**.
 - `treemap.js` — the Treemap tab: game object population as nested rectangles,
   with a toggle to flip the grouping between `level ▸ type ▸ object` and
   `type ▸ object ▸ level`
+- `graph.js` — the Graph tab: a d3 force-directed object relationship graph
+  (nodes = behaviors, edges = `spawns` / `morphs into` / `seeks` from the
+  `behavior_spawn` and `behavior_calls_*` views), with a per-object dossier and
+  a toggle to highlight the spawns that exist only in C
 - `examples.js` — the curated example queries shown in the sidebar
 - `style.css` — styling
 - `sm64.db` — the generated database (gitignored)

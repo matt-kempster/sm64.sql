@@ -616,6 +616,167 @@ table.heatmap .colhead:hover .rot { color: var(--blue); }
 .tm-label.parent .tm-name { white-space: nowrap; }
 .tm-label.leaf .tm-name { white-space: normal; overflow-wrap: anywhere; }
 
+/* ---------- graph ---------- */
+.graph-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 24px;
+  gap: 12px;
+  min-height: 0;
+}
+.graph-controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.graph-search {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  min-width: 150px;
+}
+.graph-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  overflow: hidden;
+}
+#graph-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: default;
+}
+.graph-link {
+  stroke-opacity: 0.55;
+  transition: opacity 0.15s;
+}
+.graph-node {
+  stroke: #fff;
+  stroke-width: 1.5px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.graph-node.ghost {
+  stroke: #9aa3b5;
+  stroke-dasharray: 2 2;
+}
+.graph-node.selected {
+  stroke: #1d2330;
+  stroke-width: 2.5px;
+}
+.graph-label {
+  font-size: 9px;
+  fill: var(--muted);
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--card);
+  stroke-width: 2.5px;
+}
+.graph-dim {
+  opacity: 0.1;
+}
+line.graph-dim {
+  stroke-opacity: 0.05;
+}
+
+.graph-dossier {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  max-width: 80%;
+  background: var(--card);
+  border-left: 1px solid var(--line);
+  box-shadow: -10px 0 28px rgba(0, 0, 0, 0.07);
+  overflow: auto;
+  padding: 16px 18px;
+  font-size: 13px;
+}
+.graph-dossier[hidden] {
+  display: none;
+}
+.graph-dossier h3 {
+  margin: 0 0 2px;
+  font-size: 16px;
+}
+.graph-dossier .dossier-sub {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+.graph-dossier .dossier-close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  border: none;
+  background: none;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+}
+.graph-dossier section {
+  margin-bottom: 13px;
+}
+.graph-dossier h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.graph-dossier ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.graph-dossier li {
+  padding: 2px 0;
+  line-height: 1.35;
+  border-bottom: 1px solid var(--line);
+}
+.graph-dossier li:last-child {
+  border-bottom: none;
+}
+.graph-dossier .src {
+  color: var(--muted);
+  font-size: 11px;
+}
+.graph-dossier a.src {
+  color: #2b6cb0;
+  text-decoration: none;
+}
+.graph-dossier a.src:hover {
+  text-decoration: underline;
+}
+.graph-dossier .pill {
+  display: inline-block;
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #eef1f8;
+  color: #5a6478;
+  margin-left: 4px;
+}
+.dossier-link {
+  cursor: pointer;
+  font-weight: 600;
+  border-bottom: 1px dotted #aab;
+}
+.dossier-link:hover {
+  color: #2b6cb0;
+}
+
 /* ---------- footer ---------- */
 .footer {
   flex-shrink: 0;
