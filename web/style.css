@@ -25,11 +25,13 @@ html, body {
 body {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  /* Pin the whole app to the viewport; all scrolling happens in inner panes. */
+  overflow: hidden;
 }
 
 /* ---------- top bar ---------- */
 .topbar {
+  flex-shrink: 0;
   background: linear-gradient(135deg, var(--blue), #0a4ea0);
   color: #fff;
   padding: 18px 24px 0;
@@ -65,11 +67,13 @@ body {
 }
 
 /* ---------- layout ---------- */
-main { flex: 1; min-height: 0; }
-.panel { display: none; height: 100%; }
-.panel.active { display: flex; }
+/* main is a flex container; the active panel is its single flex child and
+   fills it. min-height/min-width: 0 lets inner scroll panes actually bound. */
+main { flex: 1; min-height: 0; display: flex; }
+.panel { display: none; min-height: 0; min-width: 0; }
+.panel.active { display: flex; flex: 1; }
 
-#tab-query { gap: 16px; padding: 16px 24px; }
+#tab-query { gap: 16px; padding: 16px 24px; min-height: 0; }
 
 .sidebar {
   width: 280px;
@@ -403,6 +407,22 @@ table.heatmap .rowhead {
   text-overflow: ellipsis;
 }
 table.heatmap .rowhead:hover { color: var(--blue); }
+table.heatmap tr.cat-row .rowhead {
+  background: #e8dec5;
+  font-weight: 700;
+}
+table.heatmap tr.beh-row .rowhead {
+  background: #faf6ec;
+  font-weight: 400;
+  padding-left: 26px;
+}
+table.heatmap .twirl {
+  display: inline-block;
+  width: 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+table.heatmap .rowhead .muted { font-weight: 400; }
 table.heatmap thead th {
   position: sticky;
   top: 0;
@@ -482,6 +502,7 @@ table.heatmap .colhead:hover .rot { color: var(--blue); }
 
 /* ---------- footer ---------- */
 .footer {
+  flex-shrink: 0;
   border-top: 1px solid var(--line);
   padding: 12px 24px;
   font-size: 12px;

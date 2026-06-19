@@ -85,19 +85,13 @@
               <option value="course">course</option>
             </select>
           </label>
-          <label>Top
-            <select id="heat-top">
-              <option>15</option>
-              <option selected>25</option>
-              <option>40</option>
-            </select>
-            objects
-          </label>
+          <button id="heat-expand" class="btn">Expand all</button>
           <span class="status" id="heat-status"></span>
         </div>
         <div class="heat-scroll" id="heat-scroll"></div>
-        <p class="note">Each cell counts how many of that object are placed in that level/course
-          (<code>object</code> JOIN <code>behavior</code> JOIN <code>level</code>). Darker = more.
+        <p class="note">Rows are the game's object lists (<code>behavior.obj_list</code>); click one to expand it
+          into its behaviors. Each cell counts placements in that level/course
+          (<code>object</code> JOIN <code>behavior</code> JOIN <code>level</code>); darker = more.
           Click a cell — or a row/column label — to open the JOIN behind it in the Query tab.</p>
       </div>
     </section>
