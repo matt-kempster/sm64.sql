@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from sm64_sql.area import SM64Area, parse_areas
 from sm64_sql.behavior import SM64Behavior, parse_behaviors
+from sm64_sql.behavior_call import SM64BehaviorCall, parse_behavior_calls
 from sm64_sql.behavior_command import SM64BehaviorCommand, parse_behavior_commands
 from sm64_sql.constant import SM64Constant, parse_constants
 from sm64_sql.course import SM64Course, parse_courses
@@ -52,6 +53,7 @@ class SM64Everything:
     sm64_model_loads: List[SM64ModelLoad]
     sm64_constants: List[SM64Constant]
     sm64_behavior_commands: List[SM64BehaviorCommand]
+    sm64_behavior_calls: List[SM64BehaviorCall]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -80,6 +82,7 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("model_load", SM64ModelLoad, "sm64_model_loads"),
     ("constant", SM64Constant, "sm64_constants"),
     ("behavior_command", SM64BehaviorCommand, "sm64_behavior_commands"),
+    ("behavior_call", SM64BehaviorCall, "sm64_behavior_calls"),
 ]
 
 
@@ -201,6 +204,10 @@ TABLE_KEYS: Dict[str, TableKeys] = {
     "behavior_command": TableKeys(
         foreign_keys=(_fk("behavior_name", "behavior", "behavior_name"),)
     ),
+    # ---- behavior native-code backbone ----
+    "behavior_call": TableKeys(
+        foreign_keys=(_fk("behavior_name", "behavior", "behavior_name"),)
+    ),
 }
 
 
@@ -260,6 +267,122 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         SELECT behavior_name, seq, 'model' AS kind,
                json_extract(args_json, '$[0]') AS symbol
         FROM behavior_command WHERE command = 'SET_MODEL'
+        """,
+    ),
+    # ----- relations mined from the native C (behavior_call backbone) -----
+    # These read the same way as behavior_spawn above, but over the call sites
+    # rather than the script opcodes. The target symbol is found by pattern, not
+    # position, so they are robust to each helper's differing argument order: a
+    # spawned behavior is the 'bhv%' argument, a model the 'MODEL_%' argument,
+    # and so on. The call-name lists are the leaf relation vocabulary; anything
+    # outside them shows up in behavior_call_unclassified for review.
+    (
+        "behavior_calls_spawn",
+        """
+        CREATE VIEW behavior_calls_spawn AS
+        SELECT behavior_name, function, file, line, call,
+               (SELECT value FROM json_each(args_json)
+                WHERE value GLOB 'bhv[A-Z]*' LIMIT 1) AS spawned_behavior,
+               (SELECT value FROM json_each(args_json)
+                WHERE value GLOB 'MODEL_*' LIMIT 1) AS spawned_model
+        FROM behavior_call
+        WHERE call IN ('spawn_object', 'spawn_object_relative',
+                       'spawn_object_relative_with_scale',
+                       'spawn_object_abs_with_rot', 'spawn_object_at_origin',
+                       'spawn_object_rel_with_rot', 'spawn_object_with_scale',
+                       'spawn_child_obj_relative')
+        """,
+    ),
+    (
+        "behavior_calls_sound",
+        """
+        CREATE VIEW behavior_calls_sound AS
+        SELECT behavior_name, function, file, line, call,
+               (SELECT value FROM json_each(args_json)
+                WHERE value GLOB 'SOUND_*' LIMIT 1) AS sound
+        FROM behavior_call
+        WHERE call IN ('cur_obj_play_sound_1', 'cur_obj_play_sound_2',
+                       'cur_obj_play_sound_at_anim_range', 'play_sound',
+                       'create_sound_spawner')
+        """,
+    ),
+    (
+        "behavior_calls_model",
+        """
+        CREATE VIEW behavior_calls_model AS
+        SELECT behavior_name, function, file, line, call,
+               (SELECT value FROM json_each(args_json)
+                WHERE value GLOB 'MODEL_*' LIMIT 1) AS model
+        FROM behavior_call
+        WHERE call = 'cur_obj_set_model'
+        """,
+    ),
+    (
+        "behavior_calls_dialog",
+        """
+        CREATE VIEW behavior_calls_dialog AS
+        SELECT behavior_name, function, file, line, call,
+               (SELECT value FROM json_each(args_json)
+                WHERE value GLOB 'DIALOG_[0-9]*' LIMIT 1) AS dialog
+        FROM behavior_call
+        WHERE call IN ('set_mario_npc_dialog', 'cur_obj_update_dialog',
+                       'cur_obj_update_dialog_with_cutscene',
+                       'cutscene_object_with_dialog',
+                       'create_dialog_box_with_response')
+          AND args LIKE '%DIALOG_%'
+        """,
+    ),
+    (
+        "behavior_calls_morph",
+        """
+        CREATE VIEW behavior_calls_morph AS
+        SELECT behavior_name, function, file, line, call,
+               (SELECT value FROM json_each(args_json)
+                WHERE value GLOB 'bhv[A-Z]*' LIMIT 1) AS becomes_behavior
+        FROM behavior_call
+        WHERE call IN ('cur_obj_set_behavior', 'obj_set_behavior')
+        """,
+    ),
+    (
+        "behavior_calls_seek",
+        """
+        CREATE VIEW behavior_calls_seek AS
+        SELECT behavior_name, function, file, line, call,
+               (SELECT value FROM json_each(args_json)
+                WHERE value GLOB 'bhv[A-Z]*' LIMIT 1) AS target_behavior
+        FROM behavior_call
+        WHERE call IN ('cur_obj_nearest_object_with_behavior',
+                       'obj_nearest_object_with_behavior',
+                       'cur_obj_has_behavior', 'obj_has_behavior')
+        """,
+    ),
+    # Completeness audit: every captured call site that NO relation view above
+    # classifies, most-frequent first. The list is the visible residue -- scan
+    # the top for any helper family we should be turning into a relation. (Math
+    # and movement helpers -- sins, coss, approach_* -- legitimately live here.)
+    (
+        "behavior_call_unclassified",
+        """
+        CREATE VIEW behavior_call_unclassified AS
+        SELECT call, COUNT(*) AS n
+        FROM behavior_call
+        WHERE call NOT IN (
+            'spawn_object', 'spawn_object_relative',
+            'spawn_object_relative_with_scale', 'spawn_object_abs_with_rot',
+            'spawn_object_at_origin', 'spawn_object_rel_with_rot',
+            'spawn_object_with_scale', 'spawn_child_obj_relative',
+            'cur_obj_play_sound_1', 'cur_obj_play_sound_2',
+            'cur_obj_play_sound_at_anim_range', 'play_sound',
+            'create_sound_spawner', 'cur_obj_set_model', 'set_mario_npc_dialog',
+            'cur_obj_update_dialog', 'cur_obj_update_dialog_with_cutscene',
+            'cutscene_object_with_dialog', 'create_dialog_box_with_response',
+            'cur_obj_set_behavior', 'obj_set_behavior',
+            'cur_obj_nearest_object_with_behavior',
+            'obj_nearest_object_with_behavior', 'cur_obj_has_behavior',
+            'obj_has_behavior'
+        )
+        GROUP BY call
+        ORDER BY n DESC, call
         """,
     ),
 ]
@@ -460,6 +583,16 @@ def parse_repo(repo: Path) -> SM64Everything:
     sm64_behavior_commands = (
         parse_behavior_commands(behavior_data_c) if behavior_data_c.is_file() else []
     )
+    # The C code each behavior runs, mined from src/game/behaviors/. The roots
+    # are the CALL_NATIVE functions in the command stream above; reachability
+    # from them attributes every call site to its behavior(s).
+    root_to_behaviors: Dict[str, List[str]] = {}
+    for command in sm64_behavior_commands:
+        if command.command == "CALL_NATIVE" and command.args:
+            root_to_behaviors.setdefault(command.args, [])
+            if command.behavior_name not in root_to_behaviors[command.args]:
+                root_to_behaviors[command.args].append(command.behavior_name)
+    sm64_behavior_calls = parse_behavior_calls(repo, root_to_behaviors)
     sm64_mario_animations = parse_mario_animations(
         repo / "include" / "mario_animation_ids.h"
     )
@@ -497,4 +630,5 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_model_loads=sm64_model_loads,
         sm64_constants=sm64_constants,
         sm64_behavior_commands=sm64_behavior_commands,
+        sm64_behavior_calls=sm64_behavior_calls,
     )

@@ -2,6 +2,7 @@ import sqlite3
 
 from sm64_sql.area import SM64Area
 from sm64_sql.behavior import SM64Behavior
+from sm64_sql.behavior_call import SM64BehaviorCall
 from sm64_sql.behavior_command import SM64BehaviorCommand
 from sm64_sql.constant import SM64Constant
 from sm64_sql.course import SM64Course
@@ -234,6 +235,28 @@ def _everything():
                 args_json='["goomba_seg8_collision"]',
             ),
         ],
+        sm64_behavior_calls=[
+            SM64BehaviorCall(
+                behavior_name="bhvGoomba",
+                function="bhv_goomba_update",
+                seq=0,
+                call="spawn_object",
+                args="o, MODEL_GOOMBA, bhvGoomba",
+                args_json='["o", "MODEL_GOOMBA", "bhvGoomba"]',
+                file="src/game/behaviors/goomba.inc.c",
+                line=120,
+            ),
+            SM64BehaviorCall(
+                behavior_name="bhvGoomba",
+                function="bhv_goomba_update",
+                seq=1,
+                call="cur_obj_play_sound_2",
+                args="SOUND_OBJ_GOOMBA_WALK",
+                args_json='["SOUND_OBJ_GOOMBA_WALK"]',
+                file="src/game/behaviors/goomba.inc.c",
+                line=121,
+            ),
+        ],
     )
 
 
@@ -349,6 +372,24 @@ def test_write_to_db_round_trip():
         "SELECT kind, symbol FROM behavior_resource WHERE behavior_name = 'bhvGoomba'"
     ).fetchone()
     assert resource == ("collision", "goomba_seg8_collision")
+
+    # The behavior_call backbone records native C call sites in order.
+    assert cur.execute("SELECT COUNT(*) FROM behavior_call").fetchone()[0] == 2
+
+    # behavior_calls_spawn classifies the spawn_object call, resolving the
+    # spawned model/behavior by argument *pattern* (not position), and joins to
+    # both the model and the (self-referenced) behavior table.
+    c_spawn = cur.execute(
+        "SELECT s.spawned_model, s.spawned_behavior, s.function, s.line "
+        "FROM behavior_calls_spawn s "
+        "JOIN model m ON s.spawned_model = m.model_name "
+        "JOIN behavior b ON s.spawned_behavior = b.behavior_name"
+    ).fetchone()
+    assert c_spawn == ("MODEL_GOOMBA", "bhvGoomba", "bhv_goomba_update", 120)
+
+    # behavior_calls_sound pulls the SOUND_* argument out of the play-sound call.
+    c_sound = cur.execute("SELECT sound FROM behavior_calls_sound").fetchone()
+    assert c_sound == ("SOUND_OBJ_GOOMBA_WALK",)
 
     # The door left open: find a command referencing a symbol in ANY arg slot.
     any_slot = cur.execute(

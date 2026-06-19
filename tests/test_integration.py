@@ -309,6 +309,101 @@ def test_behavior_views_over_real_data(conn):
     assert collisions > 50
 
 
+def test_behavior_call_backbone(everything):
+    calls = everything.sm64_behavior_calls
+    # Hundreds of behaviors, thousands of native call sites.
+    assert len(calls) > 3000
+    assert len({c.behavior_name for c in calls}) > 300
+    # Every row's args_json is valid JSON, and every callee is a plain
+    # identifier (casts/function-pointer calls are filtered out at parse time).
+    assert all(isinstance(json.loads(c.args_json), list) for c in calls)
+    assert all(c.call.isidentifier() for c in calls)
+    # Provenance points at real source files with 1-based line numbers.
+    assert all(c.file.startswith("src/") and c.line >= 1 for c in calls)
+    # Most behaviors in the call backbone are public, declared behaviors.
+    behavior_names = {b.behavior_name for b in everything.sm64_behaviors}
+    assert len({c.behavior_name for c in calls} & behavior_names) > 300
+
+
+def test_behavior_call_relations_over_real_data(conn):
+    cur = conn.cursor()
+
+    # The headline: a spawn that exists ONLY in C, two call-levels below the
+    # behavior script. bhvBobomb's act_explode does spawn_object(bhvExplosion);
+    # no SPAWN_* opcode names it, so behavior_spawn cannot see it -- but the
+    # reachability-attributed behavior_calls_spawn does.
+    bobomb = {
+        row[0]
+        for row in cur.execute(
+            "SELECT spawned_behavior FROM behavior_calls_spawn "
+            "WHERE behavior_name = 'bhvBobomb' AND spawned_behavior IS NOT NULL"
+        ).fetchall()
+    }
+    assert "bhvExplosion" in bobomb
+
+    # Every resolved relation target joins to its parent table -- no danglers.
+    def dangling(view, col, parent, key):
+        return cur.execute(
+            f"SELECT COUNT(*) FROM {view} v LEFT JOIN {parent} p "
+            f"ON v.{col} = p.{key} WHERE v.{col} IS NOT NULL AND p.{key} IS NULL"
+        ).fetchone()[0]
+
+    assert (
+        dangling(
+            "behavior_calls_spawn", "spawned_behavior", "behavior", "behavior_name"
+        )
+        == 0
+    )
+    assert dangling("behavior_calls_spawn", "spawned_model", "model", "model_name") == 0
+    assert (
+        dangling(
+            "behavior_calls_morph", "becomes_behavior", "behavior", "behavior_name"
+        )
+        == 0
+    )
+    assert (
+        dangling("behavior_calls_seek", "target_behavior", "behavior", "behavior_name")
+        == 0
+    )
+    assert dangling("behavior_calls_dialog", "dialog", "dialog", "dialog_name") == 0
+
+    # Regression floors (ground truth from a source survey): a drop means
+    # something stopped being captured.
+    def n(view):
+        return cur.execute(f"SELECT COUNT(*) FROM {view}").fetchone()[0]
+
+    assert n("behavior_calls_spawn") > 200
+    assert n("behavior_calls_sound") > 250
+    assert n("behavior_calls_dialog") > 5
+    assert n("behavior_calls_seek") > 20
+    assert n("behavior_calls_morph") >= 5
+
+
+def test_behavior_call_classification_is_complete(conn):
+    # Completeness guard: a call family that any relation view claims to classify
+    # must NOT also appear in the unclassified residue -- the views and the
+    # audit view partition the same call space with no overlap.
+    cur = conn.cursor()
+    unclassified = {
+        row[0]
+        for row in cur.execute("SELECT call FROM behavior_call_unclassified").fetchall()
+    }
+    for view in (
+        "behavior_calls_spawn",
+        "behavior_calls_sound",
+        "behavior_calls_model",
+        "behavior_calls_dialog",
+        "behavior_calls_morph",
+        "behavior_calls_seek",
+    ):
+        classified = {
+            row[0]
+            for row in cur.execute(f"SELECT DISTINCT call FROM {view}").fetchall()
+        }
+        assert classified
+        assert not (classified & unclassified)
+
+
 def test_resolved_param_value_packs_the_bytes(everything):
     # An object with two numeric BPARAM bytes should pack them per the macros:
     # BPARAM1 -> bits 24-31, BPARAM2 -> bits 16-23.
