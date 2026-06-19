@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>sm64.sql — explore Super Mario 64 in SQL</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- sql.js: SQLite compiled to WebAssembly. The whole database runs in your
+       browser; nothing is sent anywhere, so there is no server to inject. -->
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.12.0/dist/sql-wasm.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1><span class="star">★</span> sm64<span class="dot">.</span>sql</h1>
+    <p class="tagline">The entire game, as a database you can query in your browser.</p>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="query">Query</button>
+      <button class="tab" data-tab="map">Map</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===================== QUERY TAB ===================== -->
+    <section class="panel active" id="tab-query">
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <h2>Example queries</h2>
+          <div id="examples" class="examples"></div>
+        </div>
+        <div class="sidebar-section">
+          <h2>Schema <span class="muted" id="schema-count"></span></h2>
+          <div id="schema" class="schema"></div>
+        </div>
+      </aside>
+
+      <div class="workspace">
+        <div class="editor-card">
+          <textarea id="sql" spellcheck="false" placeholder="SELECT * FROM behavior LIMIT 10;"></textarea>
+          <div class="editor-actions">
+            <button id="run" class="btn primary">Run ▶ <kbd>Ctrl</kbd>+<kbd>Enter</kbd></button>
+            <button id="reset" class="btn" title="Reload the original database (undo any changes you made in this session)">↻ Reload data</button>
+            <span id="status" class="status"></span>
+          </div>
+        </div>
+        <div id="results" class="results"></div>
+      </div>
+    </section>
+
+    <!-- ===================== MAP TAB ===================== -->
+    <section class="panel" id="tab-map">
+      <div class="map-coming">
+        <h2>🗺️ Level object map</h2>
+        <p>A top-down plot of every placed object, coming in the next step.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Data parsed from the <a href="https://github.com/n64decomp/sm64">n64decomp/sm64</a> source by
+    <a href="https://github.com/matt-kempster/sm64.sql">sm64.sql</a>.</span>
+    <span class="muted">Everything runs client-side via sql.js. Your queries never leave this page.</span>
+  </footer>
+
+  <div id="loading" class="loading">
+    <div class="loading-box">
+      <div class="star big">★</div>
+      <p>Loading the database…</p>
+    </div>
+  </div>
+
+  <script src="examples.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

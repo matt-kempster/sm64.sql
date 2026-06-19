@@ -1,0 +1,51 @@
+name: Deploy web
+
+# Builds the SQLite database from a fresh decomp checkout and publishes the
+# static web playground (the web/ directory) to GitHub Pages. The database is
+# generated here rather than committed, so it always matches the parser.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one deploy at a time; cancel older in-progress runs.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: sm64.sql
+      - uses: actions/checkout@v4
+        with:
+          repository: n64decomp/sm64
+          path: sm64-decomp
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install sm64.sql
+        working-directory: sm64.sql
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+      - name: Build database into web/
+        working-directory: sm64.sql
+        run: sm64-sql -r ${{ github.workspace }}/sm64-decomp -d web/sm64.db -o
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: sm64.sql/web
+      - id: deployment
+        uses: actions/deploy-pages@v4

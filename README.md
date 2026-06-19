@@ -39,6 +39,21 @@ PYTHONPATH=src python -m sm64_sql --repo /path/to/sm64 --db sm64.db
 | `-d`, `--db` | SQLite file to write. Omit to use an in-memory database. |
 | `-o`, `--overwrite` | Overwrite an existing database without prompting. |
 
+## Web playground
+
+[`web/`](web/) is a static, zero-backend site that loads the database into your
+browser with [sql.js](https://sql.js.org) and lets you run your own SQL, browse
+the schema, and try a set of curated example queries — all client-side, so
+nothing you type leaves the page. Build the database and serve the folder:
+
+```sh
+sm64-sql -r /path/to/sm64 -d web/sm64.db -o
+cd web && python3 -m http.server 8000   # then open http://localhost:8000
+```
+
+A GitHub Actions workflow rebuilds the database and deploys the site to GitHub
+Pages on every push to `master`. See [`web/README.md`](web/README.md).
+
 ## Schema
 
 | Table | Source | Columns |
