@@ -35,39 +35,41 @@ MANIFEST = Path("web/maps.js")
 MAX_DIM = 1024
 QUALITY = 82
 
-# Our DB level folder -> (STROOP numeric level, chosen image). For multi-area /
-# multi-floor levels we take the main area's image; "menu" has no map.
+# Our DB level folder -> {decomp area number: chosen image}. Areas match the
+# AREA(index) in the level scripts. Where an area has several floor/Y images we
+# take the main one; areas STROOP has no image for (e.g. ttm slide sub-areas 3,
+# 4) are simply omitted and get no background. "menu" has no map.
 PICKS = {
-    "bbh": (4, "BBH Floor 1.png"),
-    "bitdw": (17, "BitDW.png"),
-    "bitfs": (19, "BitFS 1.png"),
-    "bits": (21, "BitS 1.png"),
-    "bob": (9, "BoB.png"),
-    "bowser_1": (30, "Bowser 1.png"),
-    "bowser_2": (33, "Bowser 2.png"),
-    "bowser_3": (34, "Bowser 3.png"),
-    "castle_courtyard": (26, "Castle Courtyard.png"),
-    "castle_grounds": (16, "Castle Grounds.png"),
-    "castle_inside": (6, "Castle Floor 1 Lower.png"),
-    "ccm": (5, "CCM.png"),
-    "cotmc": (28, "CotMC.png"),
-    "ddd": (23, "DDD 1.png"),
-    "hmc": (7, "HMC 1.png"),
-    "jrb": (12, "JRB Ship Afloat.png"),
-    "lll": (22, "LLL.png"),
-    "pss": (27, "PSS 1.png"),
-    "rr": (15, "RR.png"),
-    "sa": (20, "SA.png"),
-    "sl": (10, "SL.png"),
-    "ssl": (8, "SSL.png"),
-    "thi": (13, "THI Huge.png"),
-    "totwc": (29, "TotWC.png"),
-    "ttc": (14, "TTC 1.png"),
-    "ttm": (36, "TTM.png"),
-    "vcutm": (18, "VCutM.png"),
-    "wdw": (11, "WDW 1 Low.png"),
-    "wf": (24, "WF No Tower.png"),
-    "wmotr": (31, "WMotR.png"),
+    "bbh": {1: "BBH Floor 1.png"},
+    "bitdw": {1: "BitDW.png"},
+    "bitfs": {1: "BitFS 1.png"},
+    "bits": {1: "BitS 1.png"},
+    "bob": {1: "BoB.png"},
+    "bowser_1": {1: "Bowser 1.png"},
+    "bowser_2": {1: "Bowser 2.png"},
+    "bowser_3": {1: "Bowser 3.png"},
+    "castle_courtyard": {1: "Castle Courtyard.png"},
+    "castle_grounds": {1: "Castle Grounds.png"},
+    "castle_inside": {1: "Castle Floor 1 Lower.png", 2: "Castle Floor 2.png", 3: "Castle Basement.png"},
+    "ccm": {1: "CCM.png", 2: "CCM Slide.png"},
+    "cotmc": {1: "CotMC.png"},
+    "ddd": {1: "DDD 1.png", 2: "DDD 2 Sub.png"},
+    "hmc": {1: "HMC 1.png"},
+    "jrb": {1: "JRB Ship Afloat.png", 2: "JRB Inside Ship.png"},
+    "lll": {1: "LLL.png", 2: "LLL Volcano 1.png"},
+    "pss": {1: "PSS 1.png"},
+    "rr": {1: "RR.png"},
+    "sa": {1: "SA.png"},
+    "sl": {1: "SL.png", 2: "SL Igloo.png"},
+    "ssl": {1: "SSL.png", 2: "SSL Pyramid 1.png"},
+    "thi": {1: "THI Huge.png", 2: "THI Tiny.png", 3: "THI Cave 1.png"},
+    "totwc": {1: "TotWC.png"},
+    "ttc": {1: "TTC 1.png"},
+    "ttm": {1: "TTM.png", 2: "TTM Slide 1.png"},
+    "vcutm": {1: "VCutM.png"},
+    "wdw": {1: "WDW 1 Low.png", 2: "WDW 2.png"},
+    "wf": {1: "WF No Tower.png"},
+    "wmotr": {1: "WMotR.png"},
 }
 
 MIT_NOTICE = """\
@@ -104,13 +106,16 @@ def fetch(path: str) -> bytes:
 
 
 def load_coords() -> dict:
-    """(level, image) -> (x1, x2, z1, z2) from MapAssociations.xml."""
+    """image filename -> (x1, x2, z1, z2) from MapAssociations.xml.
+
+    Each image filename maps to one rectangle in the XML, so the filename alone
+    is a safe key.
+    """
     root = ET.fromstring(fetch("Config/MapAssociations.xml").decode("utf-8-sig"))
     out = {}
     for m in root.findall("Map"):
-        img = m.find("Image").get("path")
         c = m.find("Coordinates")
-        out[(int(m.get("level")), img)] = (
+        out[m.find("Image").get("path")] = (
             float(c.get("x1")),
             float(c.get("x2")),
             float(c.get("z1")),
@@ -122,44 +127,58 @@ def load_coords() -> dict:
 def main() -> None:
     coords = load_coords()
     OUT.mkdir(parents=True, exist_ok=True)
+    for old in OUT.glob("*.webp"):  # clean slate so renamed/removed maps don't linger
+        old.unlink()
     (OUT / "STROOP-LICENSE.txt").write_text(MIT_NOTICE)
 
     manifest = {}
-    for folder, (level, image) in sorted(PICKS.items()):
-        key = (level, image)
-        if key not in coords:
-            raise SystemExit(f"no coordinates for {folder}: L{level} {image!r}")
-        x1, x2, z1, z2 = coords[key]
+    count = 0
+    for folder, areas in sorted(PICKS.items()):
+        manifest[folder] = {}
+        for area, image in sorted(areas.items()):
+            if image not in coords:
+                raise SystemExit(f"no coordinates for {folder} area {area}: {image!r}")
+            x1, x2, z1, z2 = coords[image]
 
-        im = Image.open(io.BytesIO(fetch(f"Resources/Maps/Map Images/{image}")))
-        im = im.convert("RGBA")
-        longest = max(im.width, im.height)
-        if longest > MAX_DIM:
-            scale = MAX_DIM / longest
-            im = im.resize((round(im.width * scale), round(im.height * scale)), Image.LANCZOS)
-        im.save(OUT / f"{folder}.webp", "WEBP", quality=QUALITY, method=6)
-        kb = (OUT / f"{folder}.webp").stat().st_size / 1024
-        print(f"{folder:18} {image:24} {im.width}x{im.height}  {kb:5.0f} KB")
-        manifest[folder] = {"x1": x1, "x2": x2, "z1": z1, "z2": z2}
+            im = Image.open(io.BytesIO(fetch(f"Resources/Maps/Map Images/{image}")))
+            im = im.convert("RGBA")
+            longest = max(im.width, im.height)
+            if longest > MAX_DIM:
+                scale = MAX_DIM / longest
+                im = im.resize((round(im.width * scale), round(im.height * scale)), Image.LANCZOS)
+            name = f"{folder}_{area}.webp"
+            im.save(OUT / name, "WEBP", quality=QUALITY, method=6)
+            kb = (OUT / name).stat().st_size / 1024
+            print(f"{folder:18} a{area} {image:24} {im.width}x{im.height}  {kb:5.0f} KB")
+            manifest[folder][str(area)] = {
+                "img": f"maps/{name}",
+                "x1": x1,
+                "x2": x2,
+                "z1": z1,
+                "z2": z2,
+            }
+            count += 1
 
     lines = [
         '"use strict";',
         "// Generated by tools/build_maps.py -- do not edit by hand.",
-        "// Per-level top-down map backgrounds for the Map tab. Each entry is the",
-        "// world-space rectangle (x/z plane) its image covers: left=x1, right=x2,",
-        "// top=z1, bottom=z2 (north up, +z downward). Images derived from STROOP",
-        "// (MIT, (c) 2019 SM64 TAS & ABC) -- see maps/STROOP-LICENSE.txt.",
+        "// Per-(level, area) top-down map backgrounds for the Map tab, keyed by",
+        "// level folder then area number. Each entry is the world-space rectangle",
+        "// (x/z plane) its image covers: left=x1, right=x2, top=z1, bottom=z2",
+        "// (north up, +z downward). Images derived from STROOP (MIT, (c) 2019",
+        "// SM64 TAS & ABC) -- see maps/STROOP-LICENSE.txt.",
         "window.SM64_MAPS = {",
     ]
     for folder in sorted(manifest):
-        r = manifest[folder]
-        lines.append(
-            f'  "{folder}": {{ img: "maps/{folder}.webp", '
-            f'x1: {r["x1"]:g}, x2: {r["x2"]:g}, z1: {r["z1"]:g}, z2: {r["z2"]:g} }},'
+        entries = ", ".join(
+            f'"{area}": {{ img: "{r["img"]}", '
+            f'x1: {r["x1"]:g}, x2: {r["x2"]:g}, z1: {r["z1"]:g}, z2: {r["z2"]:g} }}'
+            for area, r in sorted(manifest[folder].items())
         )
+        lines.append(f'  "{folder}": {{ {entries} }},')
     lines.append("};")
     MANIFEST.write_text("\n".join(lines) + "\n")
-    print(f"\nwrote {len(manifest)} maps -> {MANIFEST}")
+    print(f"\nwrote {count} maps across {len(manifest)} levels -> {MANIFEST}")
 
 
 if __name__ == "__main__":
