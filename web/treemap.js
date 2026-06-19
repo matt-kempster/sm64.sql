@@ -8,8 +8,8 @@
 //
 // Colour is by TYPE (object list): each obj_list gets a stable hue, so leaves
 // in the same list share a colour and nothing reshuffles when you zoom. Object
-// lists are a soft tint of that hue, levels a neutral frame. Parents show as a
-// UNIFORM frame on all four sides (uniform paddingOuter, no fat top band).
+// lists are a soft tint of that hue, levels a neutral frame. Parents get a
+// taller top band for their label and a thin frame on the other three sides.
 // Clicking a region zooms into it with an animation; the breadcrumb zooms back
 // out; clicking a behavior leaf copies its placements query.
 //
@@ -50,13 +50,15 @@
   // Absolute tier of a node: level=1, object list=2, behavior(leaf)=3.
   const absDepth = (node) => path.length - 1 + node.depth;
 
-  // Uniform frame thickness reserved around a parent's children (all 4 sides).
-  function framePad(node) {
+  // Top band reserved for a parent's label. The other three sides get a much
+  // thinner frame (SIDE_PAD) so most of the area goes to the children.
+  const SIDE_PAD = 5;
+  function topPad(node) {
     if (!node.children) return 0;
     const ad = absDepth(node);
     if (ad === 1) return 20; // level
     if (ad === 2) return 15; // object list
-    return 3; // focus container
+    return SIDE_PAD; // focus container (no label)
   }
 
   // Fill by type: vivid leaf in its list's hue, soft tint for the list frame,
@@ -159,12 +161,13 @@ WHERE s.level = '${L}' AND sp.behavior = '${B}';`;
     });
   }
 
-  // Uniform frame on all four sides (no fat top band): paddingOuter is a per-
-  // node function and paddingTop is left to follow it.
+  // Thin frame on left/right/bottom (paddingOuter), a taller top band for the
+  // label (paddingTop overrides just the top), small gaps between siblings.
   const layout = d3
     .treemap()
     .paddingInner(3)
-    .paddingOuter((node) => framePad(node))
+    .paddingOuter(SIDE_PAD)
+    .paddingTop((node) => topPad(node))
     .round(true);
 
   const DURATION = 430;
@@ -215,7 +218,7 @@ WHERE s.level = '${L}' AND sp.behavior = '${B}';`;
       const w = d.x1 - d.x0;
       const h = d.y1 - d.y0;
       const isParent = !!d.children;
-      const bandH = isParent ? framePad(d) : h;
+      const bandH = isParent ? topPad(d) : h;
       if (w < 16 || bandH < 12) return;
       const fo = d3
         .select(this)
