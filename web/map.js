@@ -13,6 +13,13 @@ const KINDS = [
   { key: "macro", label: "macro", color: "#0a64c8" },
   { key: "special", label: "special", color: "#1aa64b" },
 ];
+// Which two world axes map to the horizontal/vertical screen axes. The vertical
+// axis is always drawn pointing up, so y (height) reads naturally.
+const PLANES = {
+  xz: { h: "x", v: "z" },
+  xy: { h: "x", v: "y" },
+  zy: { h: "z", v: "y" },
+};
 const PAD = 28;
 
 const POINTS_SQL = `
@@ -37,11 +44,13 @@ const hidden = new Set(); // kinds toggled off via the legend
 
 const m = {
   level: () => document.getElementById("map-level"),
+  plane: () => document.getElementById("map-plane"),
   legend: () => document.getElementById("map-legend"),
   status: () => document.getElementById("map-status"),
   stage: () => document.getElementById("map-stage"),
   svg: () => document.getElementById("map-svg"),
   tip: () => document.getElementById("map-tooltip"),
+  axes: () => document.getElementById("map-axes"),
 };
 
 function currentDb() {
@@ -94,6 +103,9 @@ function render() {
   all.forEach((p) => (counts[p.kind] = (counts[p.kind] || 0) + 1));
   buildLegend(counts);
 
+  const plane = PLANES[m.plane().value] || PLANES.xz;
+  m.axes().textContent = `${plane.h} (horizontal) × ${plane.v} (vertical, ↑).`;
+
   const pts = all.filter((p) => !hidden.has(p.kind));
   const svg = m.svg();
   const stage = m.stage();
@@ -107,20 +119,21 @@ function render() {
   m.status().textContent = `${pts.length} shown of ${all.length} placements`;
   if (!pts.length) return;
 
-  const xs = pts.map((p) => p.x);
-  const zs = pts.map((p) => p.z);
-  const minX = Math.min(...xs),
-    maxX = Math.max(...xs);
-  const minZ = Math.min(...zs),
-    maxZ = Math.max(...zs);
-  const rangeX = maxX - minX || 1;
-  const rangeZ = maxZ - minZ || 1;
+  const hs = pts.map((p) => p[plane.h]);
+  const vs = pts.map((p) => p[plane.v]);
+  const minH = Math.min(...hs),
+    maxH = Math.max(...hs);
+  const minV = Math.min(...vs),
+    maxV = Math.max(...vs);
+  const rangeH = maxH - minH || 1;
+  const rangeV = maxV - minV || 1;
   // Equal scale on both axes so the layout is not distorted.
-  const scale = Math.min((W - 2 * PAD) / rangeX, (H - 2 * PAD) / rangeZ);
-  const offX = (W - rangeX * scale) / 2;
-  const offZ = (H - rangeZ * scale) / 2;
-  const sx = (x) => offX + (x - minX) * scale;
-  const sy = (z) => offZ + (z - minZ) * scale;
+  const scale = Math.min((W - 2 * PAD) / rangeH, (H - 2 * PAD) / rangeV);
+  const offH = (W - rangeH * scale) / 2;
+  const offV = (H - rangeV * scale) / 2;
+  const sx = (h) => offH + (h - minH) * scale;
+  // Flip vertical so larger values (e.g. height) point up the screen.
+  const sy = (v) => offV + (maxV - v) * scale;
 
   const colorOf = {};
   KINDS.forEach((k) => (colorOf[k.key] = k.color));
@@ -128,8 +141,8 @@ function render() {
   const tip = m.tip();
   pts.forEach((p) => {
     const c = document.createElementNS(SVG_NS, "circle");
-    c.setAttribute("cx", sx(p.x).toFixed(1));
-    c.setAttribute("cy", sy(p.z).toFixed(1));
+    c.setAttribute("cx", sx(p[plane.h]).toFixed(1));
+    c.setAttribute("cy", sy(p[plane.v]).toFixed(1));
     c.setAttribute("r", "4.5");
     c.setAttribute("fill", colorOf[p.kind]);
     c.setAttribute("fill-opacity", "0.85");
@@ -164,6 +177,7 @@ function ensureInit() {
   });
   if (levels.includes("bob")) select.value = "bob";
   select.addEventListener("change", render);
+  m.plane().addEventListener("change", render);
 
   let resizeTimer = null;
   window.addEventListener("resize", () => {

@@ -53,6 +53,13 @@
           <label>Level
             <select id="map-level"></select>
           </label>
+          <label>Plane
+            <select id="map-plane">
+              <option value="xz">x / z (top-down)</option>
+              <option value="xy">x / y (front)</option>
+              <option value="zy">z / y (side)</option>
+            </select>
+          </label>
           <div class="legend" id="map-legend"></div>
           <span class="status" id="map-status"></span>
         </div>
@@ -60,7 +67,7 @@
           <svg id="map-svg" xmlns="http://www.w3.org/2000/svg"></svg>
           <div class="map-tooltip" id="map-tooltip"></div>
         </div>
-        <p class="note">Top-down view (x horizontal, z vertical). All areas of a level are overlaid. Hover a dot for details.</p>
+        <p class="note"><span id="map-axes"></span> All areas of a level are overlaid. Hover a dot for details.</p>
       </div>
     </section>
   </main>
