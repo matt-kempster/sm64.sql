@@ -337,6 +337,11 @@ tbody tr:hover { background: #fbfaf4; }
   background: #fff;
   color: var(--ink);
 }
+.map-bg-toggle { cursor: pointer; user-select: none; }
+.map-bg-toggle input { cursor: pointer; margin: 0; }
+.map-bg-toggle.disabled { opacity: 0.4; cursor: not-allowed; }
+.map-bg-toggle.disabled input { cursor: not-allowed; }
+#map-svg image { image-rendering: auto; }
 .legend { display: flex; gap: 6px; }
 .legend-item {
   display: flex;

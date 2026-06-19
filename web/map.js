@@ -45,6 +45,8 @@ const hidden = new Set(); // kinds toggled off via the legend
 const m = {
   level: () => document.getElementById("map-level"),
   plane: () => document.getElementById("map-plane"),
+  bg: () => document.getElementById("map-bg"),
+  bgLabel: () => document.getElementById("map-bg-label"),
   legend: () => document.getElementById("map-legend"),
   status: () => document.getElementById("map-status"),
   stage: () => document.getElementById("map-stage"),
@@ -104,7 +106,22 @@ function render() {
   buildLegend(counts);
 
   const plane = PLANES[m.plane().value] || PLANES.xz;
-  m.axes().textContent = `${plane.h} (horizontal) × ${plane.v} (vertical, ↑).`;
+
+  // A level-map background exists only for the top-down (x/z) plane, and only
+  // for levels STROOP shipped an image for. Enable the toggle accordingly.
+  const maps = window.SM64_MAPS || {};
+  const mapInfo = plane.h === "x" && plane.v === "z" ? maps[level] : null;
+  m.bg().disabled = !mapInfo;
+  m.bgLabel().classList.toggle("disabled", !mapInfo);
+  const useBg = !!mapInfo && m.bg().checked;
+
+  // The height axis (y) reads naturally pointing up; the top-down z axis is
+  // drawn north-up (+z downward) to match the level-map images.
+  const flipV = plane.v === "y";
+  m.axes().textContent =
+    plane.v === "y"
+      ? `${plane.h} (horizontal) × y (height, ↑).`
+      : `${plane.h} (horizontal) × z (vertical) — north up.`;
 
   const pts = all.filter((p) => !hidden.has(p.kind));
   const svg = m.svg();
@@ -117,14 +134,25 @@ function render() {
   while (svg.firstChild) svg.removeChild(svg.firstChild);
 
   m.status().textContent = `${pts.length} shown of ${all.length} placements`;
-  if (!pts.length) return;
 
-  const hs = pts.map((p) => p[plane.h]);
-  const vs = pts.map((p) => p[plane.v]);
-  const minH = Math.min(...hs),
+  // World extent of the view: the map image's world rectangle when shown (so
+  // image and points share one transform), else the bounding box of the
+  // points (auto-fit, as before).
+  let minH, maxH, minV, maxV;
+  if (useBg) {
+    minH = mapInfo.x1;
+    maxH = mapInfo.x2;
+    minV = mapInfo.z1;
+    maxV = mapInfo.z2;
+  } else {
+    if (!pts.length) return;
+    const hs = pts.map((p) => p[plane.h]);
+    const vs = pts.map((p) => p[plane.v]);
+    minH = Math.min(...hs);
     maxH = Math.max(...hs);
-  const minV = Math.min(...vs),
+    minV = Math.min(...vs);
     maxV = Math.max(...vs);
+  }
   const rangeH = maxH - minH || 1;
   const rangeV = maxV - minV || 1;
   // Equal scale on both axes so the layout is not distorted.
@@ -132,8 +160,23 @@ function render() {
   const offH = (W - rangeH * scale) / 2;
   const offV = (H - rangeV * scale) / 2;
   const sx = (h) => offH + (h - minH) * scale;
-  // Flip vertical so larger values (e.g. height) point up the screen.
-  const sy = (v) => offV + (maxV - v) * scale;
+  const sy = (v) => (flipV ? offV + (maxV - v) * scale : offV + (v - minV) * scale);
+
+  // The map image fills its world rectangle exactly (corners map to coords, so
+  // preserveAspectRatio="none"); it is drawn first so points sit on top.
+  if (useBg) {
+    const img = document.createElementNS(SVG_NS, "image");
+    img.setAttributeNS(null, "href", mapInfo.img);
+    img.setAttribute("x", offH.toFixed(1));
+    img.setAttribute("y", offV.toFixed(1));
+    img.setAttribute("width", (rangeH * scale).toFixed(1));
+    img.setAttribute("height", (rangeV * scale).toFixed(1));
+    img.setAttribute("preserveAspectRatio", "none");
+    img.setAttribute("opacity", "0.9");
+    svg.appendChild(img);
+  }
+
+  if (!pts.length) return;
 
   const colorOf = {};
   KINDS.forEach((k) => (colorOf[k.key] = k.color));
@@ -178,6 +221,7 @@ function ensureInit() {
   if (levels.includes("bob")) select.value = "bob";
   select.addEventListener("change", render);
   m.plane().addEventListener("change", render);
+  m.bg().addEventListener("change", render);
 
   let resizeTimer = null;
   window.addEventListener("resize", () => {

@@ -71,6 +71,9 @@
               <option value="zy">z / y (side)</option>
             </select>
           </label>
+          <label class="map-bg-toggle" id="map-bg-label">
+            <input type="checkbox" id="map-bg" checked> Level map
+          </label>
           <div class="legend" id="map-legend"></div>
           <span class="status" id="map-status"></span>
         </div>
@@ -78,7 +81,10 @@
           <svg id="map-svg" xmlns="http://www.w3.org/2000/svg"></svg>
           <div class="map-tooltip" id="map-tooltip"></div>
         </div>
-        <p class="note"><span id="map-axes"></span> All areas of a level are overlaid. Hover a dot for details.</p>
+        <p class="note"><span id="map-axes"></span> All areas of a level are overlaid. Hover a dot for details.
+          The top-down <strong>Level map</strong> background uses level images from
+          <a href="https://github.com/SM64-TAS-ABC/STROOP" target="_blank" rel="noopener">STROOP</a>
+          (MIT) registered to world coordinates; multi-area levels show their main area's map.</p>
       </div>
     </section>
 
@@ -143,6 +149,7 @@
 
   <script src="examples.js"></script>
   <script src="app.js"></script>
+  <script src="maps.js"></script>
   <script src="map.js"></script>
   <script src="heatmap.js"></script>
   <script src="treemap.js"></script>

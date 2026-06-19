@@ -32,7 +32,12 @@ Actions**.
 - `index.html` — page shell and tab layout
 - `app.js` — loads sql.js + the database, runs queries, renders results/schema
   (the schema tree shows each table's declared foreign keys as one-click joins)
-- `map.js` — the Map tab: a top-down/front/side scatter of a level's objects
+- `map.js` — the Map tab: a top-down/front/side scatter of a level's objects,
+  with an optional top-down level-map background (see `maps/`)
+- `maps.js` / `maps/` — generated level-map backgrounds: one WebP per level plus a
+  manifest of the world rectangle each image covers. Built by `tools/build_maps.py`
+  from [STROOP](https://github.com/SM64-TAS-ABC/STROOP)'s MIT-licensed map images
+  (see `maps/STROOP-LICENSE.txt`)
 - `heatmap.js` — the Heatmap tab: object × level/course crosstab
 - `treemap.js` — the Treemap tab: game object population as nested rectangles,
   with a toggle to flip the grouping between `level ▸ type ▸ object` and
