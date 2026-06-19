@@ -327,6 +327,111 @@ tbody tr:hover { background: #fbfaf4; }
 }
 .map-tooltip .muted { color: #b9c2d6; }
 
+/* ---------- heatmap ---------- */
+.heat-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 24px;
+  gap: 12px;
+  min-height: 0;
+  width: 100%;
+}
+.heat-controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.heat-controls label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.heat-controls select {
+  font: 600 13px var(--mono);
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+.heat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+table.heatmap {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 11px;
+}
+table.heatmap th,
+table.heatmap td {
+  border-bottom: 1px solid #f0ead9;
+  border-right: 1px solid #f0ead9;
+}
+table.heatmap td {
+  width: 30px;
+  min-width: 30px;
+  height: 26px;
+  text-align: center;
+  font-family: var(--mono);
+  cursor: default;
+}
+table.heatmap td:empty { background: #fcfbf7; }
+table.heatmap td:not(:empty) { cursor: pointer; }
+table.heatmap .rowhead {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #f4efe1;
+  text-align: right;
+  white-space: nowrap;
+  padding: 0 10px;
+  font-family: var(--mono);
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+table.heatmap .rowhead:hover { color: var(--blue); }
+table.heatmap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f4efe1;
+}
+table.heatmap .corner {
+  left: 0;
+  z-index: 4;
+  background: #f4efe1;
+}
+table.heatmap .colhead {
+  height: 92px;
+  vertical-align: bottom;
+  cursor: pointer;
+  padding: 0;
+}
+table.heatmap .colhead .rot {
+  display: inline-block;
+  transform: rotate(-55deg);
+  transform-origin: left bottom;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-weight: 600;
+  margin-left: 20px;
+  padding-bottom: 6px;
+}
+table.heatmap .colhead:hover .rot { color: var(--blue); }
+
 /* ---------- footer ---------- */
 .footer {
   border-top: 1px solid var(--line);

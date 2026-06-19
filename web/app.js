@@ -70,6 +70,21 @@ function runQuery() {
   renderResults(resultSets, ms);
 }
 
+// Visual tabs call this to hand a JOIN to the Query tab and run it, so every
+// chart cell is backed by SQL the user can see and edit.
+function showQueryWith(sql) {
+  els.sql.value = sql;
+  document
+    .querySelectorAll(".tab")
+    .forEach((t) => t.classList.toggle("active", t.dataset.tab === "query"));
+  document
+    .querySelectorAll(".panel")
+    .forEach((p) => p.classList.toggle("active", p.id === "tab-query"));
+  runQuery();
+  els.sql.scrollTop = 0;
+}
+window.sm64RunInQuery = showQueryWith;
+
 function showError(message) {
   els.status.textContent = "";
   els.results.innerHTML = "";
@@ -237,8 +252,11 @@ function wireEvents() {
       document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
       tab.classList.add("active");
       $("#tab-" + tab.dataset.tab).classList.add("active");
-      // The map needs the panel visible to measure itself, so render on show.
-      if (tab.dataset.tab === "map" && window.SM64Map) window.SM64Map.onShow();
+      // Visual tabs need the panel visible to measure themselves, so they
+      // render on show rather than on load.
+      const mods = { map: "SM64Map", heatmap: "SM64Heatmap", treemap: "SM64Treemap" };
+      const mod = window[mods[tab.dataset.tab]];
+      if (mod) mod.onShow();
     });
   });
 }

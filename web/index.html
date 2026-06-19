@@ -16,6 +16,7 @@
     <nav class="tabs" id="tabs">
       <button class="tab active" data-tab="query">Query</button>
       <button class="tab" data-tab="map">Map</button>
+      <button class="tab" data-tab="heatmap">Heatmap</button>
     </nav>
   </header>
 
@@ -70,6 +71,33 @@
         <p class="note"><span id="map-axes"></span> All areas of a level are overlaid. Hover a dot for details.</p>
       </div>
     </section>
+
+    <!-- ===================== HEATMAP TAB ===================== -->
+    <section class="panel" id="tab-heatmap">
+      <div class="heat-wrap">
+        <div class="heat-controls">
+          <label>Columns
+            <select id="heat-cols">
+              <option value="level">level</option>
+              <option value="course">course</option>
+            </select>
+          </label>
+          <label>Top
+            <select id="heat-top">
+              <option>15</option>
+              <option selected>25</option>
+              <option>40</option>
+            </select>
+            objects
+          </label>
+          <span class="status" id="heat-status"></span>
+        </div>
+        <div class="heat-scroll" id="heat-scroll"></div>
+        <p class="note">Each cell counts how many of that object are placed in that level/course
+          (<code>object</code> JOIN <code>behavior</code> JOIN <code>level</code>). Darker = more.
+          Click a cell — or a row/column label — to open the JOIN behind it in the Query tab.</p>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
@@ -88,5 +116,6 @@
   <script src="examples.js"></script>
   <script src="app.js"></script>
   <script src="map.js"></script>
+  <script src="heatmap.js"></script>
 </body>
 </html>
