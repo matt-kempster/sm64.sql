@@ -273,8 +273,12 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
     # These read the same way as behavior_spawn above, but over the call sites
     # rather than the script opcodes. The target symbol is found by pattern, not
     # position, so they are robust to each helper's differing argument order: a
-    # spawned behavior is the 'bhv%' argument, a model the 'MODEL_%' argument,
-    # and so on. The call-name lists are the leaf relation vocabulary; anything
+    # spawned behavior is the 'bhv[A-Z]*' argument, a model the 'MODEL_*' one.
+    # Each view lists only the sites where the target *resolves to a literal*
+    # (the EXISTS guard); a call that passes its target as a runtime value -- a
+    # signpost reading its dialog id from oBhvParams2ndByte, a spawn of a
+    # behavior held in a variable -- stays in behavior_call but is not a clean
+    # edge here. The call-name lists are the leaf relation vocabulary; anything
     # outside them shows up in behavior_call_unclassified for review.
     (
         "behavior_calls_spawn",
@@ -291,6 +295,8 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
                        'spawn_object_abs_with_rot', 'spawn_object_at_origin',
                        'spawn_object_rel_with_rot', 'spawn_object_with_scale',
                        'spawn_child_obj_relative')
+          AND EXISTS (SELECT 1 FROM json_each(args_json)
+                      WHERE value GLOB 'bhv[A-Z]*')
         """,
     ),
     (
@@ -304,6 +310,8 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         WHERE call IN ('cur_obj_play_sound_1', 'cur_obj_play_sound_2',
                        'cur_obj_play_sound_at_anim_range', 'play_sound',
                        'create_sound_spawner')
+          AND EXISTS (SELECT 1 FROM json_each(args_json)
+                      WHERE value GLOB 'SOUND_*')
         """,
     ),
     (
@@ -315,6 +323,8 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
                 WHERE value GLOB 'MODEL_*' LIMIT 1) AS model
         FROM behavior_call
         WHERE call = 'cur_obj_set_model'
+          AND EXISTS (SELECT 1 FROM json_each(args_json)
+                      WHERE value GLOB 'MODEL_*')
         """,
     ),
     (
@@ -325,11 +335,12 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
                (SELECT value FROM json_each(args_json)
                 WHERE value GLOB 'DIALOG_[0-9]*' LIMIT 1) AS dialog
         FROM behavior_call
-        WHERE call IN ('set_mario_npc_dialog', 'cur_obj_update_dialog',
+        WHERE call IN ('cur_obj_update_dialog',
                        'cur_obj_update_dialog_with_cutscene',
                        'cutscene_object_with_dialog',
                        'create_dialog_box_with_response')
-          AND args LIKE '%DIALOG_%'
+          AND EXISTS (SELECT 1 FROM json_each(args_json)
+                      WHERE value GLOB 'DIALOG_[0-9]*')
         """,
     ),
     (
@@ -341,6 +352,8 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
                 WHERE value GLOB 'bhv[A-Z]*' LIMIT 1) AS becomes_behavior
         FROM behavior_call
         WHERE call IN ('cur_obj_set_behavior', 'obj_set_behavior')
+          AND EXISTS (SELECT 1 FROM json_each(args_json)
+                      WHERE value GLOB 'bhv[A-Z]*')
         """,
     ),
     (
@@ -354,6 +367,8 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         WHERE call IN ('cur_obj_nearest_object_with_behavior',
                        'obj_nearest_object_with_behavior',
                        'cur_obj_has_behavior', 'obj_has_behavior')
+          AND EXISTS (SELECT 1 FROM json_each(args_json)
+                      WHERE value GLOB 'bhv[A-Z]*')
         """,
     ),
     # Completeness audit: every captured call site that NO relation view above
@@ -373,7 +388,7 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
             'spawn_object_with_scale', 'spawn_child_obj_relative',
             'cur_obj_play_sound_1', 'cur_obj_play_sound_2',
             'cur_obj_play_sound_at_anim_range', 'play_sound',
-            'create_sound_spawner', 'cur_obj_set_model', 'set_mario_npc_dialog',
+            'create_sound_spawner', 'cur_obj_set_model',
             'cur_obj_update_dialog', 'cur_obj_update_dialog_with_cutscene',
             'cutscene_object_with_dialog', 'create_dialog_box_with_response',
             'cur_obj_set_behavior', 'obj_set_behavior',

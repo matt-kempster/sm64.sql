@@ -133,9 +133,15 @@ each helper's differing argument order:
 | `behavior_calls_spawn` | `spawn_object`, `spawn_object_relative`, … | `spawned_behavior`, `spawned_model` |
 | `behavior_calls_sound` | `cur_obj_play_sound_1/2`, `play_sound`, … | `sound` |
 | `behavior_calls_model` | `cur_obj_set_model` | `model` |
-| `behavior_calls_dialog` | `set_mario_npc_dialog`, `cur_obj_update_dialog_with_cutscene`, … | `dialog` |
+| `behavior_calls_dialog` | `cur_obj_update_dialog_with_cutscene`, `cutscene_object_with_dialog`, … | `dialog` |
 | `behavior_calls_morph` | `cur_obj_set_behavior`, `obj_set_behavior` | `becomes_behavior` |
 | `behavior_calls_seek` | `cur_obj_nearest_object_with_behavior`, `cur_obj_has_behavior`, … | `target_behavior` |
+
+Each view lists only the call sites whose target *resolves to a literal symbol*,
+so the target column is never null. A call that passes its target as a runtime
+value — a signpost reading its dialog id from `oBhvParams2ndByte`, a spawn of a
+behavior held in a variable — stays in `behavior_call` (query it directly) but is
+not surfaced as a clean edge here.
 
 Completeness is auditable rather than assumed: nothing is filtered at parse time,
 so `behavior_call_unclassified` lists every captured call a relation view does

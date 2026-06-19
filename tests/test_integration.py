@@ -367,6 +367,23 @@ def test_behavior_call_relations_over_real_data(conn):
     )
     assert dangling("behavior_calls_dialog", "dialog", "dialog", "dialog_name") == 0
 
+    # The relation views are resolved edges -- no NULL targets. A call that
+    # passes its target as a runtime value (a signpost's dialog id read from its
+    # bhv param, a spawn of a behavior held in a variable) stays in
+    # behavior_call instead of showing up here as a null.
+    for view, col in (
+        ("behavior_calls_spawn", "spawned_behavior"),
+        ("behavior_calls_sound", "sound"),
+        ("behavior_calls_model", "model"),
+        ("behavior_calls_dialog", "dialog"),
+        ("behavior_calls_morph", "becomes_behavior"),
+        ("behavior_calls_seek", "target_behavior"),
+    ):
+        nulls = cur.execute(
+            f"SELECT COUNT(*) FROM {view} WHERE {col} IS NULL"
+        ).fetchone()[0]
+        assert nulls == 0, f"{view}.{col} has {nulls} NULLs"
+
     # Regression floors (ground truth from a source survey): a drop means
     # something stopped being captured.
     def n(view):
@@ -402,6 +419,11 @@ def test_behavior_call_classification_is_complete(conn):
         }
         assert classified
         assert not (classified & unclassified)
+
+    # set_mario_npc_dialog sets a Mario head-turn STATE (MARIO_DIALOG_*), not a
+    # dialog id, so it is intentionally NOT a relation -- it must surface in the
+    # residue rather than be silently swallowed by behavior_calls_dialog.
+    assert "set_mario_npc_dialog" in unclassified
 
 
 def test_resolved_param_value_packs_the_bytes(everything):
