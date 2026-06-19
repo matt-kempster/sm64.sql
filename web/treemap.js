@@ -30,12 +30,16 @@
   let path = [];
 
   // The two nesting orders. `order` lists the dimensions outer→inner (the last
-  // is the leaf); `root` is the breadcrumb label for the whole view.
+  // is the leaf); `root` is the breadcrumb label; `color` is the cross-cutting
+  // dimension the palette tracks -- always the manageable dimension that is NOT
+  // the outermost grouping, so colour adds information instead of repeating the
+  // spatial split: types across levels, or levels across objects.
   const MODES = {
-    lto: { order: ["level", "type", "object"], root: "all levels" },
-    tol: { order: ["type", "object", "level"], root: "all types" },
+    lto: { order: ["level", "type", "object"], root: "all levels", color: "type" },
+    tol: { order: ["type", "object", "level"], root: "all types", color: "level" },
   };
   let mode = "lto";
+  let colorDim = "type"; // set from the active mode on each rebuild
 
   const strip = (s) => String(s).replace(/^bhv/, "");
   const catLabel = (c) => (c ? c.replace(/^OBJ_LIST_/, "").toLowerCase() : "(none)");
@@ -43,15 +47,25 @@
     String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   const sqlStr = (s) => String(s).replace(/'/g, "''");
 
-  // One cheerful hue per object-list type. The domain is seeded once (sorted)
-  // so a given type always maps to the same colour, in or out of any zoom.
+  // One cheerful hue per object-list type (12 covers the 11 lists + the empty
+  // bucket). Levels (31 of them) get a generated spread of distinct hues. Both
+  // domains are seeded once from sorted values, so a given type/level always
+  // maps to the same colour, in or out of any zoom. `colorOf` picks the scale
+  // for the active mode's cross-cutting dimension.
   const PALETTE = [
     "#ff8787", "#ffa94d", "#ffd43b", "#a9e34b", "#69db7c", "#38d9a9",
     "#3bc9db", "#4dabf7", "#748ffc", "#9775fa", "#da77f2", "#f783ac",
   ];
-  const colorByType = d3.scaleOrdinal(PALETTE);
+  const colorScales = {
+    type: d3.scaleOrdinal(PALETTE),
+    level: d3.scaleOrdinal(),
+  };
+  const colorOf = (key) => colorScales[colorDim](key);
   const tint = (hex, t) => d3.interpolateRgb(hex, "#ffffff")(t);
-  const LEVEL_FRAME = "#e7eaf1";
+  // Neutral frames. When both frames are neutral (level-coloured mode) the
+  // inner one is a touch darker so the nesting still reads.
+  const OUTER_FRAME = "#e7eaf1";
+  const INNER_FRAME = "#d6dbe8";
 
   function textOn(bg) {
     const c = d3.color(bg).rgb();
@@ -73,15 +87,15 @@
     return SIDE_PAD; // focus container (no label)
   }
 
-  // Fill by type, regardless of nesting order: every tile carries the obj_list
-  // it belongs to in `cat` (mixed groups, i.e. a level frame, carry ""). Leaves
-  // are vivid; a type frame is a soft tint; an object frame a stronger tint; a
-  // mixed (level) frame is neutral.
+  // Fill by the active cross-cutting dimension: every tile carries its colour
+  // key in `ckey` (the value of that dimension, or "" for a frame spanning
+  // several). A leaf is vivid; the frame that IS the colour dimension gets a
+  // soft tint of its hue; any other frame is neutral (inner ones darker).
   function fillFor(node) {
-    const cat = node.data.cat || "";
-    if (!node.children) return colorByType(cat);
-    if (node.data.dim === "level") return LEVEL_FRAME; // a level frame is neutral
-    return tint(colorByType(cat), node.data.dim === "type" ? 0.62 : 0.45);
+    const key = node.data.ckey || "";
+    if (!node.children) return colorOf(key);
+    if (node.data.dim === colorDim) return tint(colorOf(key), 0.62);
+    return absDepth(node) >= 2 ? INNER_FRAME : OUTER_FRAME;
   }
 
   // Label a data node by its dimension, not its depth, so both orders read
@@ -128,26 +142,28 @@
       type: olist || "",
       count: c,
     }));
-    const cats = Array.from(new Set(rows.map((row) => row.type))).sort();
-    return { rows, cats };
+    const types = Array.from(new Set(rows.map((row) => row.type))).sort();
+    const levels = Array.from(new Set(rows.map((row) => row.level))).sort();
+    return { rows, types, levels };
   }
 
-  // The obj_list shared by a set of rows, or "" when they span several. A type
-  // or object group always shares one type; only a level group is mixed (and is
-  // drawn with the neutral frame anyway).
-  function catFor(rows) {
-    let c = null;
+  // The value of dimension `dim` shared by a set of rows, or "" when they span
+  // several -- the latter marks a frame the colour dimension doesn't pin down,
+  // so it is drawn neutral.
+  function sharedField(rows, dim) {
+    let v = null;
     for (const row of rows) {
-      if (c === null) c = row.type;
-      else if (c !== row.type) return "";
+      if (v === null) v = row[dim];
+      else if (v !== row[dim]) return "";
     }
-    return c || "";
+    return v || "";
   }
 
   // Group the rows into a 3-tier tree following `order` (outer→inner, last is
-  // the leaf). Each node records its `dim` (for labels), its `cat` (for colour)
-  // and -- for leaves -- the placement count as `value`.
-  function buildTree(order) {
+  // the leaf). Each node records its `dim` (for labels), its `ckey` (the value
+  // of the colour dimension `cdim`, "" if mixed) and -- for leaves -- the
+  // placement count as `value`.
+  function buildTree(order, cdim) {
     const [d0, d1, d2] = order;
     const m0 = new Map();
     rawRows.forEach((row) => {
@@ -159,15 +175,15 @@
     return Array.from(m0, ([k0, m1]) => ({
       name: k0,
       dim: d0,
-      cat: catFor(Array.from(m1.values()).flat()),
+      ckey: sharedField(Array.from(m1.values()).flat(), cdim),
       children: Array.from(m1, ([k1, rows]) => ({
         name: k1,
         dim: d1,
-        cat: catFor(rows),
+        ckey: sharedField(rows, cdim),
         children: rows.map((row) => ({
           name: row[d2],
           dim: d2,
-          cat: row.type,
+          ckey: row[cdim],
           value: row.count,
         })),
       })),
@@ -378,7 +394,8 @@ WHERE s.level = '${L}' AND sp.behavior = '${B}';`;
 
   // Rebuild the whole tree for the current mode and reset the zoom to the root.
   function rebuild() {
-    treeRootData = { name: "root", children: buildTree(MODES[mode].order) };
+    colorDim = MODES[mode].color;
+    treeRootData = { name: "root", children: buildTree(MODES[mode].order, colorDim) };
     path = [treeRootData];
     syncModeButtons();
     render();
@@ -409,9 +426,15 @@ WHERE s.level = '${L}' AND sp.behavior = '${B}';`;
     onShow() {
       ensureInit();
       if (!rawRows) {
-        const { rows, cats } = loadRows();
+        const { rows, types, levels } = loadRows();
         rawRows = rows;
-        colorByType.domain(cats); // deterministic, stable type→colour mapping
+        // Stable, deterministic mappings. Types use the hand-picked palette;
+        // levels get an evenly-spaced spread of hues (drop the last sample so
+        // the rainbow's wrap doesn't repeat the first colour).
+        colorScales.type.domain(types);
+        colorScales.level
+          .domain(levels)
+          .range(d3.quantize(d3.interpolateRainbow, levels.length + 1).slice(0, -1));
       }
       rebuild();
     },
