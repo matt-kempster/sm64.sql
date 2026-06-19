@@ -6,14 +6,19 @@
 // focus are shown, all styled identically and sized by placement count. Click a
 // tile to zoom into it; the breadcrumb zooms back out; clicking a behavior (a
 // leaf) copies its query. Wrapped in an IIFE; app.js owns the global `db`.
+//
+// Navigation is a `path` of plain DATA nodes; each draw builds a FRESH d3
+// hierarchy rooted at the focused data (depth 0). d3.treemap indexes its
+// padding by absolute node.depth, so it must be handed a depth-0 root --
+// passing a sub-node yields NaN coordinates and a broken layout.
 // ---------------------------------------------------------------------------
 
 (function () {
   const el = (id) => document.getElementById(id);
   const sdb = () => window.sm64db();
   let inited = false;
-  let root = null; // full hierarchy
-  let focus = null; // node currently filling the view
+  let treeRootData = null; // { name:'root', children:[levels...] }, built once
+  let path = []; // data nodes from root to the current focus
 
   const strip = (s) => String(s).replace(/^bhv/, "");
   const catLabel = (c) => (c ? c.replace(/^OBJ_LIST_/, "").toLowerCase() : "(none)");
@@ -29,18 +34,17 @@
 
   const layout = d3.treemap().paddingInner(3).round(true);
 
-  // Readable text color for a given tile fill.
   function textOn(bg) {
     const c = d3.color(bg).rgb();
     const lum = (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
     return lum > 0.62 ? "#1d2330" : "#ffffff";
   }
 
-  // Display name per tier: levels/behaviors as-is (minus bhv), lists prettified.
-  function displayName(n) {
-    if (n.depth === 0) return "all levels";
-    if (n.depth === 2) return catLabel(n.data.name);
-    return strip(n.data.name);
+  // path[0]=root, [1]=level, [2]=object list. Label each accordingly.
+  function crumbLabel(node, i) {
+    if (i === 0) return "all levels";
+    if (i === 2) return catLabel(node.name);
+    return strip(node.name);
   }
 
   // level → object list → behaviors (leaves)
@@ -73,25 +77,21 @@ WHERE level = '${level}' AND behavior = '${beh}'
 ORDER BY level;`;
   }
 
-  function zoomTo(node) {
-    focus = node;
-    draw();
-  }
-
   function buildBreadcrumb() {
     const bc = el("tm-breadcrumb");
     bc.innerHTML = "";
-    focus.ancestors().reverse().forEach((n, i) => {
+    path.forEach((node, i) => {
       if (i) {
         const sep = document.createElement("span");
         sep.className = "tm-sep";
         sep.textContent = "▸";
         bc.appendChild(sep);
       }
+      const last = i === path.length - 1;
       const crumb = document.createElement("button");
-      crumb.className = "tm-crumb" + (n === focus ? " current" : "");
-      crumb.textContent = displayName(n);
-      if (n !== focus) crumb.addEventListener("click", () => zoomTo(n));
+      crumb.className = "tm-crumb" + (last ? " current" : "");
+      crumb.textContent = crumbLabel(node, i);
+      if (!last) crumb.addEventListener("click", () => { path = path.slice(0, i + 1); draw(); });
       bc.appendChild(crumb);
     });
   }
@@ -107,13 +107,21 @@ ORDER BY level;`;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     if (W < 2 || H < 2) return;
 
-    layout.size([W, H])(focus); // lay the focus subtree out to fill the view
-    const tiles = focus.children || [];
+    // Fresh depth-0 hierarchy rooted at the focused data (see header note).
+    const focusData = path[path.length - 1];
+    const local = d3
+      .hierarchy(focusData)
+      .sum((d) => d.value || 0)
+      .sort((a, b) => b.value - a.value);
+    layout.size([W, H])(local);
+    const tiles = local.children || [];
 
     buildBreadcrumb();
-    const kind = focus.depth === 0 ? "levels" : focus.depth === 1 ? "object lists" : "behaviors";
-    el("tm-status").textContent = `${tiles.length} ${kind} · ${focus.value} placements`;
+    const kind = path.length === 1 ? "levels" : path.length === 2 ? "object lists" : "behaviors";
+    el("tm-status").textContent = `${tiles.length} ${kind} · ${local.value} placements`;
 
+    const tilesAreObjLists = path.length === 2;
+    const context = path.slice(1).map((n, i) => crumbLabel(n, i + 1)).join(" · ");
     const tip = el("tm-tooltip");
     const layer = d3.select(svg).append("g").attr("class", "tm-layer");
 
@@ -125,15 +133,10 @@ ORDER BY level;`;
       .attr("class", "tm-tile")
       .attr("transform", (d) => `translate(${d.x0},${d.y0})`)
       .on("mousemove", (event, d) => {
-        const path = d
-          .ancestors()
-          .slice(1, -1)
-          .reverse()
-          .map(displayName)
-          .join(" · ");
+        const name = tilesAreObjLists ? catLabel(d.data.name) : strip(d.data.name);
         tip.innerHTML =
-          `<strong>${escapeHtml(displayName(d))}</strong> × ${d.value}` +
-          (path ? `<br><span class="muted">${escapeHtml(path)}</span>` : "") +
+          `<strong>${escapeHtml(name)}</strong> × ${d.value}` +
+          (context ? `<br><span class="muted">${escapeHtml(context)}</span>` : "") +
           (d.children ? `<br><span class="muted">click to zoom in</span>` : "");
         tip.style.display = "block";
         const r = stage.getBoundingClientRect();
@@ -142,10 +145,12 @@ ORDER BY level;`;
       })
       .on("mouseleave", () => (tip.style.display = "none"))
       .on("click", (event, d) => {
-        if (d.children) zoomTo(d);
-        else {
-          const level = d.ancestors().find((a) => a.depth === 1);
-          window.sm64CopyQuery(leafQuery(level.data.name, d.data.name));
+        if (d.children) {
+          path.push(d.data);
+          draw();
+        } else {
+          const level = path[1] ? path[1].name : focusData.name;
+          window.sm64CopyQuery(leafQuery(level, d.data.name));
         }
       });
 
@@ -166,9 +171,10 @@ ORDER BY level;`;
         const h = d.y1 - d.y0;
         if (w < 26 || h < 16) return "";
         const fg = textOn(colorByName(d.data.name));
+        const name = tilesAreObjLists ? catLabel(d.data.name) : strip(d.data.name);
         return (
           `<div class="tm-label" style="color:${fg}">` +
-          `<span class="tm-name">${escapeHtml(displayName(d))}</span>` +
+          `<span class="tm-name">${escapeHtml(name)}</span>` +
           `<span class="tm-val">${d.value}${d.children ? " ▸" : ""}</span>` +
           `</div>`
         );
@@ -190,11 +196,8 @@ ORDER BY level;`;
   window.SM64Treemap = {
     onShow() {
       ensureInit();
-      root = d3
-        .hierarchy({ name: "root", children: loadTree() })
-        .sum((d) => d.value || 0)
-        .sort((a, b) => b.value - a.value);
-      focus = root;
+      if (!treeRootData) treeRootData = { name: "root", children: loadTree() };
+      path = [treeRootData];
       draw();
     },
   };
