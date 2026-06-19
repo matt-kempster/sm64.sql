@@ -1,38 +1,34 @@
 "use strict";
 
 // ---------------------------------------------------------------------------
-// Treemap tab: a zoomable, single-tier treemap of the game's object population,
-// drilling level → object list → behavior. Only the children of the current
-// focus are shown, all styled identically and sized by placement count. Click a
-// tile to zoom into it; the breadcrumb zooms back out; clicking a behavior (a
-// leaf) copies its query. Wrapped in an IIFE; app.js owns the global `db`.
+// Treemap tab: a nested treemap showing all three tiers at once -- level →
+// object list → behavior. Each level is a hue; nesting is shown by shade (dark
+// header frames, vivid leaf tiles) so the tiers read as one family. Clicking a
+// region's header zooms into it (breadcrumb zooms back out); clicking a
+// behavior leaf copies its query. Wrapped in an IIFE; app.js owns global `db`.
 //
 // Navigation is a `path` of plain DATA nodes; each draw builds a FRESH d3
-// hierarchy rooted at the focused data (depth 0). d3.treemap indexes its
-// padding by absolute node.depth, so it must be handed a depth-0 root --
-// passing a sub-node yields NaN coordinates and a broken layout.
+// hierarchy rooted at the focused data (depth 0). d3.treemap indexes padding by
+// absolute node.depth, so it must be handed a depth-0 root.
 // ---------------------------------------------------------------------------
 
 (function () {
   const el = (id) => document.getElementById(id);
   const sdb = () => window.sm64db();
   let inited = false;
-  let treeRootData = null; // { name:'root', children:[levels...] }, built once
-  let path = []; // data nodes from root to the current focus
+  let treeRootData = null;
+  let path = [];
 
   const strip = (s) => String(s).replace(/^bhv/, "");
   const catLabel = (c) => (c ? c.replace(/^OBJ_LIST_/, "").toLowerCase() : "(none)");
   const escapeHtml = (s) =>
     String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
-  // One cheerful palette, used at every tier so the tiles look uniform.
   const PALETTE = [
     "#ff8787", "#ffa94d", "#ffd43b", "#a9e34b", "#69db7c", "#38d9a9",
     "#3bc9db", "#4dabf7", "#748ffc", "#9775fa", "#da77f2", "#f783ac",
   ];
   const colorByName = d3.scaleOrdinal(PALETTE);
-
-  const layout = d3.treemap().paddingInner(3).round(true);
 
   function textOn(bg) {
     const c = d3.color(bg).rgb();
@@ -40,11 +36,25 @@
     return lum > 0.62 ? "#1d2330" : "#ffffff";
   }
 
-  // path[0]=root, [1]=level, [2]=object list. Label each accordingly.
-  function crumbLabel(node, i) {
-    if (i === 0) return "all levels";
-    if (i === 2) return catLabel(node.name);
-    return strip(node.name);
+  // Absolute tier of a node: level=1, object list=2, behavior=3.
+  const absDepth = (node) => path.length - 1 + node.depth;
+
+  // Header band reserved at the top of a parent for its label.
+  function topPad(node) {
+    if (!node.children) return 0;
+    return absDepth(node) === 1 ? 19 : 15;
+  }
+
+  // Fill: vivid leaf in the branch's hue; darker shades for the header frames.
+  function fillFor(node) {
+    const branch = node.ancestors().find((a) => a.depth === 1);
+    const base = d3.color(colorByName(branch.data.name));
+    if (!node.children) return base.formatHex();
+    return base.darker(absDepth(node) === 1 ? 1.1 : 0.55).formatHex();
+  }
+
+  function nodeLabel(node) {
+    return absDepth(node) === 2 ? catLabel(node.data.name) : strip(node.data.name);
   }
 
   // level → object list → behaviors (leaves)
@@ -77,6 +87,12 @@ WHERE level = '${level}' AND behavior = '${beh}'
 ORDER BY level;`;
   }
 
+  function crumbLabel(node, i) {
+    if (i === 0) return "all levels";
+    if (i === 2) return catLabel(node.name);
+    return strip(node.name);
+  }
+
   function buildBreadcrumb() {
     const bc = el("tm-breadcrumb");
     bc.innerHTML = "";
@@ -96,6 +112,13 @@ ORDER BY level;`;
     });
   }
 
+  const layout = d3
+    .treemap()
+    .paddingInner(2)
+    .paddingOuter(2)
+    .paddingTop((node) => topPad(node))
+    .round(true);
+
   function draw() {
     const stage = el("tm-stage");
     const W = stage.clientWidth;
@@ -107,36 +130,35 @@ ORDER BY level;`;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     if (W < 2 || H < 2) return;
 
-    // Fresh depth-0 hierarchy rooted at the focused data (see header note).
     const focusData = path[path.length - 1];
     const local = d3
       .hierarchy(focusData)
       .sum((d) => d.value || 0)
       .sort((a, b) => b.value - a.value);
     layout.size([W, H])(local);
-    const tiles = local.children || [];
 
     buildBreadcrumb();
-    const kind = path.length === 1 ? "levels" : path.length === 2 ? "object lists" : "behaviors";
-    el("tm-status").textContent = `${tiles.length} ${kind} · ${local.value} placements`;
+    el("tm-status").textContent =
+      `${local.leaves().length} behaviors · ${local.value} placements`;
 
-    const tilesAreObjLists = path.length === 2;
-    const context = path.slice(1).map((n, i) => crumbLabel(n, i + 1)).join(" · ");
+    // Parents before children so leaves sit on top (and catch clicks first;
+    // a parent's only exposed area is its header band + gaps).
+    const nodes = local.descendants().slice(1).sort((a, b) => a.depth - b.depth);
     const tip = el("tm-tooltip");
     const layer = d3.select(svg).append("g").attr("class", "tm-layer");
 
     const g = layer
       .selectAll("g.tm-tile")
-      .data(tiles)
+      .data(nodes)
       .enter()
       .append("g")
       .attr("class", "tm-tile")
       .attr("transform", (d) => `translate(${d.x0},${d.y0})`)
       .on("mousemove", (event, d) => {
-        const name = tilesAreObjLists ? catLabel(d.data.name) : strip(d.data.name);
+        const ctx = d.ancestors().slice(1, -1).reverse().map(nodeLabel).join(" · ");
         tip.innerHTML =
-          `<strong>${escapeHtml(name)}</strong> × ${d.value}` +
-          (context ? `<br><span class="muted">${escapeHtml(context)}</span>` : "") +
+          `<strong>${escapeHtml(nodeLabel(d))}</strong> × ${d.value}` +
+          (ctx ? `<br><span class="muted">${escapeHtml(ctx)}</span>` : "") +
           (d.children ? `<br><span class="muted">click to zoom in</span>` : "");
         tip.style.display = "block";
         const r = stage.getBoundingClientRect();
@@ -149,7 +171,7 @@ ORDER BY level;`;
           path.push(d.data);
           draw();
         } else {
-          const level = path[1] ? path[1].name : focusData.name;
+          const level = path[1] ? path[1].name : d.ancestors().find((a) => a.depth === 1).data.name;
           window.sm64CopyQuery(leafQuery(level, d.data.name));
         }
       });
@@ -157,28 +179,28 @@ ORDER BY level;`;
     g.append("rect")
       .attr("width", (d) => Math.max(0, d.x1 - d.x0))
       .attr("height", (d) => Math.max(0, d.y1 - d.y0))
-      .attr("rx", 4)
-      .attr("ry", 4)
-      .attr("fill", (d) => colorByName(d.data.name));
+      .attr("rx", 3)
+      .attr("ry", 3)
+      .attr("fill", fillFor); // stroke comes from CSS (.tm-tile rect)
 
-    // Labels via foreignObject so CSS handles truncation/ellipsis consistently.
-    g.append("foreignObject")
-      .attr("class", "tm-fo")
-      .attr("width", (d) => Math.max(0, d.x1 - d.x0))
-      .attr("height", (d) => Math.max(0, d.y1 - d.y0))
-      .html((d) => {
-        const w = d.x1 - d.x0;
-        const h = d.y1 - d.y0;
-        if (w < 26 || h < 16) return "";
-        const fg = textOn(colorByName(d.data.name));
-        const name = tilesAreObjLists ? catLabel(d.data.name) : strip(d.data.name);
-        return (
-          `<div class="tm-label" style="color:${fg}">` +
-          `<span class="tm-name">${escapeHtml(name)}</span>` +
-          `<span class="tm-val">${d.value}${d.children ? " ▸" : ""}</span>` +
-          `</div>`
+    // Labels via foreignObject for consistent CSS truncation/ellipsis. A
+    // parent's label sits in its header band; a leaf's fills the tile.
+    g.each(function (d) {
+      const w = d.x1 - d.x0;
+      const bandH = d.children ? topPad(d) : d.y1 - d.y0;
+      if (w < 28 || bandH < 13) return;
+      d3.select(this)
+        .append("foreignObject")
+        .attr("class", "tm-fo")
+        .attr("width", w)
+        .attr("height", bandH)
+        .html(
+          `<div class="tm-label" style="color:${textOn(fillFor(d))}">` +
+            `<span class="tm-name">${escapeHtml(nodeLabel(d))}</span>` +
+            `<span class="tm-val">${d.value}${d.children ? " ▸" : ""}</span>` +
+            `</div>`
         );
-      });
+    });
   }
 
   function ensureInit() {
