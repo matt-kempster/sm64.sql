@@ -152,6 +152,11 @@
         </div>
         <div class="graph-stage" id="graph-stage">
           <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="graph-zoom" id="graph-zoom">
+            <button id="graph-zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+            <button id="graph-zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+            <button id="graph-zoom-reset" title="Reset view" aria-label="Reset view">⤢</button>
+          </div>
           <div class="map-tooltip" id="graph-tooltip"></div>
           <aside class="graph-dossier" id="graph-dossier" hidden></aside>
         </div>
@@ -161,7 +166,8 @@
           game; the small dashed-ring nodes are <em>ghosts</em> — spawned at runtime
           but never placed. Toggle a relation in the legend, hover to focus a node's
           neighbours, and click for its full dossier (with links to the decomp
-          source). <strong>Highlight C-only spawns</strong> lights up the spawns that
+          source). Scroll to zoom, drag the background to pan.
+          <strong>Highlight C-only spawns</strong> lights up the spawns that
           live only in C and are invisible to the bytecode.</p>
       </div>
     </section>

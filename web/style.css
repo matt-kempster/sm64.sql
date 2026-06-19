@@ -653,7 +653,34 @@ table.heatmap .colhead:hover .rot { color: var(--blue); }
   width: 100%;
   height: 100%;
   display: block;
-  cursor: default;
+  cursor: grab;
+}
+#graph-svg:active {
+  cursor: grabbing;
+}
+.graph-zoom {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.graph-zoom button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 8px;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--ink, #1d2330);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.graph-zoom button:hover {
+  background: var(--card);
+  border-color: #b9c2d6;
 }
 .graph-link {
   stroke-opacity: 0.55;
