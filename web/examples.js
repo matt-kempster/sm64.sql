@@ -35,6 +35,39 @@ WHERE s.spawned_behavior IS NOT NULL
 ORDER BY child_only;`,
   },
   {
+    title: "Spawns hidden in the C code",
+    sql: `-- The native-code spawn graph (behavior_calls_spawn, mined from the C in
+-- src/game/behaviors/) sees runtime spawns the bytecode never names. These are
+-- spawns present in C but ABSENT from the bytecode-derived behavior_spawn --
+-- e.g. a Bob-omb's explosion, spawned deep inside its act function.
+SELECT c.behavior_name AS parent, c.spawned_behavior AS child,
+       c.function, c.file, c.line
+FROM behavior_calls_spawn c
+WHERE c.spawned_behavior IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM behavior_spawn s
+    WHERE s.behavior_name = c.behavior_name
+      AND s.spawned_behavior = c.spawned_behavior
+  )
+ORDER BY parent;`,
+  },
+  {
+    title: "What sound does each object make?",
+    sql: `-- Sounds played from behavior C code (behavior_calls_sound), joined to
+-- the sound table for the bank each one belongs to.
+SELECT c.behavior_name, c.sound, s.bank, c.function
+FROM behavior_calls_sound c
+JOIN sound s ON c.sound = s.sound_name
+ORDER BY c.behavior_name;`,
+  },
+  {
+    title: "Completeness audit (unclassified C calls)",
+    sql: `-- Every captured C call that no relation view classifies, most-frequent
+-- first: the visible residue, to scan for a helper family worth promoting to a
+-- relation. (Math and movement helpers -- sins, coss -- legitimately live here.)
+SELECT call, n FROM behavior_call_unclassified LIMIT 30;`,
+  },
+  {
     title: "Shared engine helpers",
     sql: `-- Native C functions called by the most behaviors -- the engine's
 -- shared building blocks. (behavior_native is a VIEW over CALL_NATIVE.)

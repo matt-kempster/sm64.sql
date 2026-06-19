@@ -9,10 +9,11 @@ reads those source files and writes the equivalent rows into a SQLite database,
 so questions like "which objects appear only in act 1?", "what music plays in
 each course?", or "where does each painting warp to?" become one-line queries.
 
-It currently populates 21 tables (plus 3 derived views) spanning placed
-objects, models and per-level model loads, behaviors and their command scripts,
-levels/courses/areas, warps, dialog, music, animations, sounds, the in-game
-course and star names, and the named constants behavior params use — see the
+It currently populates 22 tables (plus 10 derived views) spanning placed
+objects, models and per-level model loads, behaviors and their command scripts
+and native C code, levels/courses/areas, warps, dialog, music, animations,
+sounds, the in-game course and star names, and the named constants behavior
+params use — see the
 [schema](#schema) and [example queries](#example-queries) below.
 
 ## Install
@@ -77,6 +78,7 @@ Pages on every push to `master`. See [`web/README.md`](web/README.md).
 | `special_object` | `levels/**/collision.inc.c` | `preset_name`, `preset_id`, `level`, `area`, `pos_x/y/z`, `yaw`, `bhv_param`, `bhv_param_value` |
 | `behavior` | `include/behavior_data.h` + `data/behavior_data.c` | `behavior_name`, `obj_list` |
 | `behavior_command` | `data/behavior_data.c` | `behavior_name`, `seq`, `command`, `args`, `args_json` |
+| `behavior_call` | `src/game/behaviors/*.inc.c` | `behavior_name`, `function`, `seq`, `call`, `args`, `args_json`, `file`, `line` |
 | `warp` | `levels/*/script.c` | `level`, `area` (0 = level-global), `node_id`, `dest_level`, `dest_area`, `dest_node`, `flags`, `is_painting` |
 | `instant_warp` | `levels/*/script.c` | `level`, `area`, `warp_index`, `dest_area`, `displace_x/y/z` |
 | `area` | `levels/*/script.c` | `level`, `area`, `geo`, `terrain_type`, `background_music`, `dialog` |
@@ -107,6 +109,43 @@ columns that join like any other table:
 
 Because the arguments are stored as JSON, `json_each` answers the questions the
 views do not — e.g. "which commands name this symbol in *any* argument slot?"
+
+### Behavior native code
+
+A behavior script mostly just `CALL_NATIVE`s into C functions under
+`src/game/behaviors/`. The real logic — what an object spawns, the sounds it
+plays, the dialog it shows — lives in those functions and the helpers they call,
+and the script never names it. The `behavior_call` table is the backbone for
+that layer: one row per call site in the C, attributed to the behavior(s) that
+reach it. The C is parsed with [tree-sitter](https://tree-sitter.github.io/)
+(a real syntax tree, not regex), so every function and every call is enumerated
+structurally; each call is attributed by following the static call graph from a
+behavior's `CALL_NATIVE` roots through the object code, treating engine helpers
+(`spawn_object`, `cur_obj_play_sound_2`, …) as the leaf relation vocabulary.
+
+The same backbone-plus-views pattern then exposes the relations as plain
+columns. The target symbol is matched by argument *pattern* (a spawned behavior
+is the `bhv*` argument, a model the `MODEL_*` one), so the views are robust to
+each helper's differing argument order:
+
+| View | From calls | Columns (besides `behavior_name`, `function`, `file`, `line`, `call`) |
+| --- | --- | --- |
+| `behavior_calls_spawn` | `spawn_object`, `spawn_object_relative`, … | `spawned_behavior`, `spawned_model` |
+| `behavior_calls_sound` | `cur_obj_play_sound_1/2`, `play_sound`, … | `sound` |
+| `behavior_calls_model` | `cur_obj_set_model` | `model` |
+| `behavior_calls_dialog` | `set_mario_npc_dialog`, `cur_obj_update_dialog_with_cutscene`, … | `dialog` |
+| `behavior_calls_morph` | `cur_obj_set_behavior`, `obj_set_behavior` | `becomes_behavior` |
+| `behavior_calls_seek` | `cur_obj_nearest_object_with_behavior`, `cur_obj_has_behavior`, … | `target_behavior` |
+
+Completeness is auditable rather than assumed: nothing is filtered at parse time,
+so `behavior_call_unclassified` lists every captured call a relation view does
+*not* classify (most-frequent first) — the visible residue to scan for a helper
+family worth promoting to a relation.
+
+This is what makes runtime spawns visible that the script alone cannot show: a
+Bob-omb's explosion (`spawn_object(bhvExplosion)` inside `bobomb_act_explode`)
+has no `SPAWN_*` opcode, so it is absent from `behavior_spawn` but present in
+`behavior_calls_spawn`.
 
 ### Behavior parameters
 
@@ -221,6 +260,19 @@ FROM behavior_native GROUP BY behavior_name;
 -- Which behaviors load a given collision mesh / animation set?
 SELECT behavior_name, symbol FROM behavior_resource WHERE kind = 'collision';
 
+-- The *full* spawn graph, including runtime spawns that live only in C and have
+-- no SPAWN_* opcode (e.g. a Bob-omb's explosion). Compare to behavior_spawn.
+SELECT behavior_name AS parent, spawned_behavior AS child, function, file, line
+FROM behavior_calls_spawn
+WHERE spawned_behavior IS NOT NULL ORDER BY parent;
+
+-- Which objects make a given sound, and from which C function?
+SELECT behavior_name, function, sound FROM behavior_calls_sound
+WHERE sound = 'SOUND_OBJ_BOBOMB_WALK';
+
+-- Completeness audit: captured C calls that no relation view classifies yet.
+SELECT call, n FROM behavior_call_unclassified LIMIT 25;
+
 -- Read a single behavior's command script, in order.
 SELECT seq, command, args FROM behavior_command
 WHERE behavior_name = 'bhvGoomba' ORDER BY seq;
@@ -261,13 +313,13 @@ mypy                   # type-check
 
 ## Status & limitations
 
-21 tables (plus 3 views) are populated from a full current `n64decomp/sm64`
+22 tables (plus 10 views) are populated from a full current `n64decomp/sm64`
 checkout: placed objects, macro objects and special objects; models and
-per-level model loads, behaviors and their command scripts, macro/special
-presets; levels, courses and areas; warps and instant warps; dialog text, music
-sequences, Mario animations, and sound effects; the in-game course and star
-names; and the named constants behavior params use. Counts are cross-checked
-against the source.
+per-level model loads, behaviors and their command scripts and native C code,
+macro/special presets; levels, courses and areas; warps and instant warps;
+dialog text, music sequences, Mario animations, and sound effects; the in-game
+course and star names; and the named constants behavior params use. Counts are
+cross-checked against the source.
 
 Behavior parameters (`bhvParam` / preset `param`) are captured on the object,
 macro object, special object, and macro preset tables — split into their
