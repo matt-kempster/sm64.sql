@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 from sm64_sql.area import SM64Area, parse_areas
 from sm64_sql.behavior import SM64Behavior, parse_behaviors
@@ -80,6 +80,127 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("constant", SM64Constant, "sm64_constants"),
     ("behavior_command", SM64BehaviorCommand, "sm64_behavior_commands"),
 ]
+
+
+@dataclass(frozen=True)
+class ForeignKey:
+    """A foreign key from this table's column to a parent table's unique column."""
+
+    column: str
+    parent_table: str
+    parent_column: str
+
+
+@dataclass(frozen=True)
+class TableKeys:
+    """Primary key, extra unique keys, and foreign keys declared on a table.
+
+    SQLite does not *enforce* these unless ``PRAGMA foreign_keys=ON`` (and even
+    then only on writes), so for this read-only database they are declarative
+    metadata: they document the real join paths and let the web UI read them
+    back via ``PRAGMA foreign_key_list``. They are derived from the n64decomp
+    source, which has no foreign keys of its own.
+
+    A few edges have a handful of known orphans -- pseudo-levels (``menu``,
+    ``common``), the CALL'd-but-unexported ``bhvSunkenShipSetRotation``
+    subroutine, the ``special_haunted_door`` preset with no preset row, and
+    ``NULL``-sentinel rows. Those are genuine decomp artifacts, not schema
+    errors, and are harmless while enforcement is off.
+    """
+
+    primary_key: Optional[Tuple[str, ...]] = None
+    unique: Tuple[Tuple[str, ...], ...] = ()
+    foreign_keys: Tuple[ForeignKey, ...] = ()
+
+
+def _fk(column: str, parent_table: str, parent_column: str) -> ForeignKey:
+    return ForeignKey(column, parent_table, parent_column)
+
+
+# The implicit relational structure of the decomp, made explicit. Parent key
+# columns are declared PRIMARY KEY / UNIQUE so they are valid FK targets (every
+# one is verified unique in the data). db.write_to_db reads this when creating
+# each table. Tables absent here (e.g. sound, constant) have no clean key to
+# another table -- they are genuine islands.
+TABLE_KEYS: Dict[str, TableKeys] = {
+    # ---- hub dimension tables (parents) ----
+    "level": TableKeys(
+        primary_key=("level_name",),
+        unique=(("folder",),),  # NULL for stubs, so still uniquely indexable
+        foreign_keys=(_fk("course_name", "course", "course_name"),),
+    ),
+    "course": TableKeys(primary_key=("course_name",)),
+    "behavior": TableKeys(primary_key=("behavior_name",)),
+    "model": TableKeys(primary_key=("model_name",)),
+    "sequence": TableKeys(primary_key=("seq_name",)),
+    "dialog": TableKeys(primary_key=("dialog_name",)),
+    "mario_animation": TableKeys(primary_key=("anim_name",)),
+    "course_name": TableKeys(
+        primary_key=("course_name",),
+        foreign_keys=(_fk("course_name", "course", "course_name"),),
+    ),
+    "star": TableKeys(foreign_keys=(_fk("course_name", "course", "course_name"),)),
+    # ---- presets (parents of placements, children of behavior/model) ----
+    "macro_preset": TableKeys(
+        primary_key=("macro_name",),
+        foreign_keys=(
+            _fk("behavior", "behavior", "behavior_name"),
+            _fk("model_name", "model", "model_name"),
+        ),
+    ),
+    "special_preset": TableKeys(
+        primary_key=("preset_name",),
+        foreign_keys=(
+            _fk("behavior", "behavior", "behavior_name"),
+            _fk("model_name", "model", "model_name"),
+        ),
+    ),
+    # ---- placements (the leaves; everything flows up from here) ----
+    "object": TableKeys(
+        foreign_keys=(
+            _fk("level", "level", "folder"),
+            _fk("behavior", "behavior", "behavior_name"),
+            _fk("model_name", "model", "model_name"),
+        )
+    ),
+    "macro_object": TableKeys(
+        foreign_keys=(
+            _fk("level", "level", "folder"),
+            _fk("macro_name", "macro_preset", "macro_name"),
+        )
+    ),
+    "special_object": TableKeys(
+        foreign_keys=(
+            _fk("level", "level", "folder"),
+            _fk("preset_name", "special_preset", "preset_name"),
+        )
+    ),
+    # ---- per-level scene data ----
+    "area": TableKeys(
+        foreign_keys=(
+            _fk("level", "level", "folder"),
+            _fk("dialog", "dialog", "dialog_name"),
+            _fk("background_music", "sequence", "seq_name"),
+        )
+    ),
+    "warp": TableKeys(
+        foreign_keys=(
+            _fk("level", "level", "folder"),
+            _fk("dest_level", "level", "level_name"),  # destination is the macro
+        )
+    ),
+    "instant_warp": TableKeys(foreign_keys=(_fk("level", "level", "folder"),)),
+    "model_load": TableKeys(
+        foreign_keys=(
+            _fk("level", "level", "folder"),
+            _fk("model_name", "model", "model_name"),
+        )
+    ),
+    # ---- behavior script backbone ----
+    "behavior_command": TableKeys(
+        foreign_keys=(_fk("behavior_name", "behavior", "behavior_name"),)
+    ),
+}
 
 
 # SQL views derived from the materialized tables. The behavior_command backbone

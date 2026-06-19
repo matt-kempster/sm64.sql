@@ -26,8 +26,8 @@ def test_parse_areas(tmp_path):
     assert first.background_music == "SEQ_LEVEL_GRASS"
     assert first.dialog == "DIALOG_000"
 
-    # An area without music/dialog leaves those blank but still records terrain.
+    # An area without music/dialog leaves those NULL but still records terrain.
     second = by_index[2]
     assert second.terrain_type == "TERRAIN_WATER"
-    assert second.background_music == ""
-    assert second.dialog == ""
+    assert second.background_music is None
+    assert second.dialog is None

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from sm64_sql.parse_utils import extract_macro_args
 
@@ -9,7 +9,10 @@ from sm64_sql.parse_utils import extract_macro_args
 class SM64Level:
     level_name: str  # the LEVEL_* enum, e.g. LEVEL_BBH
     course_name: str  # the COURSE_* enum, e.g. COURSE_BBH
-    folder: str  # the levels/<folder> name, joins to object.level ("" if stub)
+    # the levels/<folder> name, joins to object.level etc. NULL for stub levels
+    # (they have no folder); NULL keeps the column uniquely indexable so it can
+    # be a foreign-key target.
+    folder: Optional[str]
     internal_name: str  # the original ROM level name, e.g. "TERESA OBAKE"
     is_stub: bool  # STUB_LEVEL (no content) vs DEFINE_LEVEL
 
@@ -34,7 +37,7 @@ def parse_levels(path: Path) -> List[SM64Level]:
                 SM64Level(
                     level_name=args[1],
                     course_name=args[2],
-                    folder="" if is_stub else args[3],
+                    folder=None if is_stub else args[3],
                     internal_name=args[0].strip('"'),
                     is_stub=is_stub,
                 )

@@ -3,7 +3,13 @@ import sqlite3
 import typing
 from typing import Any, Iterable, Optional, Tuple
 
-from sm64_sql.everything import ENTITY_TABLES, ENTITY_VIEWS, SM64Everything
+from sm64_sql.everything import (
+    ENTITY_TABLES,
+    ENTITY_VIEWS,
+    TABLE_KEYS,
+    SM64Everything,
+    TableKeys,
+)
 
 
 def get_sql_type(python_type: str) -> str:
@@ -41,18 +47,22 @@ def create_table(
     cursor: sqlite3.Cursor,
     table_name: str,
     fields: Iterable[dataclasses.Field],
-    primary_key: Optional[str] = None,
+    keys: Optional[TableKeys] = None,
 ):
-    command = f"CREATE TABLE {table_name} ("
-    for field in fields:
-        sql_type = get_sql_type(_base_type_name(field.type))
-        command += f"{field.name} {sql_type}, "
-    if primary_key:
-        command += f"PRIMARY KEY {primary_key}"
-    else:
-        command = command[:-2]
-    command += ")"
-    cursor.execute(command)
+    parts = [
+        f"{field.name} {get_sql_type(_base_type_name(field.type))}" for field in fields
+    ]
+    if keys:
+        if keys.primary_key:
+            parts.append(f"PRIMARY KEY ({', '.join(keys.primary_key)})")
+        for unique in keys.unique:
+            parts.append(f"UNIQUE ({', '.join(unique)})")
+        for fk in keys.foreign_keys:
+            parts.append(
+                f"FOREIGN KEY ({fk.column}) "
+                f"REFERENCES {fk.parent_table} ({fk.parent_column})"
+            )
+    cursor.execute(f"CREATE TABLE {table_name} ({', '.join(parts)})")
 
 
 def insert_into_table(
@@ -79,7 +89,9 @@ def insert_values(
 def write_to_db(conn: sqlite3.Connection, everything: SM64Everything) -> None:
     cursor = conn.cursor()
     for table_name, row_type, attr in ENTITY_TABLES:
-        create_table(cursor, table_name, dataclasses.fields(row_type))
+        create_table(
+            cursor, table_name, dataclasses.fields(row_type), TABLE_KEYS.get(table_name)
+        )
     for table_name, row_type, attr in ENTITY_TABLES:
         insert_values(
             cursor,

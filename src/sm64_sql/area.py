@@ -11,8 +11,10 @@ class SM64Area:
     area: int  # AREA index
     geo: str  # geo layout symbol (the AREA's second argument)
     terrain_type: str  # TERRAIN_TYPE value (e.g. TERRAIN_GRASS), or ""
-    background_music: str  # SET_BACKGROUND_MUSIC seq (joins sequence.seq_name), or ""
-    dialog: str  # SHOW_DIALOG dialog id (joins dialog.dialog_name), or ""
+    # NULL (not "") when the area sets no music/dialog, so the foreign keys to
+    # sequence.seq_name / dialog.dialog_name stay clean.
+    background_music: Optional[str]  # SET_BACKGROUND_MUSIC seq -> sequence.seq_name
+    dialog: Optional[str]  # SHOW_DIALOG id -> dialog.dialog_name
 
 
 def parse_areas(path: Path, level: str) -> List[SM64Area]:
@@ -34,8 +36,8 @@ def parse_areas(path: Path, level: str) -> List[SM64Area]:
                 area=index,
                 geo=geo,
                 terrain_type="",
-                background_music="",
-                dialog="",
+                background_music=None,
+                dialog=None,
             )
             continue
         if line.startswith("END_AREA"):
