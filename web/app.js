@@ -10,6 +10,7 @@ const MAX_DISPLAY_ROWS = 1000;
 
 let db = null; // active sql.js Database
 let originalBytes = null; // pristine copy, for "Reload data"
+let editor = null; // CodeMirror instance, or null if the CDN failed to load
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -41,9 +42,10 @@ async function boot() {
     buildExamples();
     buildSchema();
     wireEvents();
+    initEditor();
 
     // Start with the first example so the page is alive on load.
-    els.sql.value = window.SM64_EXAMPLES[0].sql;
+    setSql(window.SM64_EXAMPLES[0].sql);
     runQuery();
   } catch (err) {
     els.loading.querySelector("p").textContent = "Failed to load: " + err.message;
@@ -53,10 +55,62 @@ async function boot() {
   els.loading.classList.add("hidden");
 }
 
+// --- editor (CodeMirror, with a plain-textarea fallback) -------------------
+
+function getSql() {
+  return editor ? editor.getValue() : els.sql.value;
+}
+
+function setSql(text) {
+  if (editor) editor.setValue(text);
+  else els.sql.value = text;
+}
+
+// The { table: [columns] } map sql-hint uses for autocomplete, covering every
+// table AND view in the database — the same source as the schema sidebar.
+function buildHintTables() {
+  const tables = {};
+  const meta = db.exec(
+    "SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name"
+  );
+  if (!meta.length) return tables;
+  meta[0].values.forEach(([name]) => {
+    const cols = db.exec(`PRAGMA table_info(${name})`);
+    tables[name] = cols.length ? cols[0].values.map((c) => c[1]) : [];
+  });
+  return tables;
+}
+
+function initEditor() {
+  if (typeof CodeMirror === "undefined") return; // CDN blocked -> plain textarea
+  editor = CodeMirror.fromTextArea(els.sql, {
+    mode: "text/x-sql",
+    lineNumbers: true,
+    lineWrapping: true,
+    smartIndent: false,
+    extraKeys: {
+      "Ctrl-Enter": runQuery,
+      "Cmd-Enter": runQuery,
+      "Ctrl-Space": "autocomplete",
+    },
+    hintOptions: { tables: buildHintTables(), completeSingle: false },
+  });
+  // Pop completions while typing an identifier (not on spaces/punctuation).
+  editor.on("inputRead", (cm, change) => {
+    if (
+      !cm.state.completionActive &&
+      change.text.length === 1 &&
+      /[\w.]$/.test(change.text[0])
+    ) {
+      cm.showHint({ hint: CodeMirror.hint.sql, completeSingle: false });
+    }
+  });
+}
+
 // --- query execution -------------------------------------------------------
 
 function runQuery() {
-  const sql = els.sql.value.trim();
+  const sql = getSql().trim();
   if (!sql) return;
   const t0 = performance.now();
   let resultSets;
@@ -192,9 +246,8 @@ function buildExamples() {
     btn.className = "example";
     btn.textContent = ex.title;
     btn.addEventListener("click", () => {
-      els.sql.value = ex.sql;
+      setSql(ex.sql);
       runQuery();
-      els.sql.scrollTop = 0;
     });
     els.examples.appendChild(btn);
   });
@@ -234,7 +287,7 @@ function schemaItem(name) {
   // Clicking the name previews the table.
   nameBtn.addEventListener("click", (e) => {
     e.preventDefault();
-    els.sql.value = `SELECT * FROM ${name} LIMIT 20;`;
+    setSql(`SELECT * FROM ${name} LIMIT 20;`);
     runQuery();
   });
   summary.appendChild(nameBtn);
@@ -264,6 +317,8 @@ function wireEvents() {
     db = new (db.constructor)(originalBytes);
     els.status.textContent = "↻ database reloaded";
   });
+  // Fallback Ctrl/Cmd+Enter for the plain textarea (when CodeMirror is active
+  // the textarea is hidden and the shortcut is handled via extraKeys instead).
   els.sql.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       e.preventDefault();

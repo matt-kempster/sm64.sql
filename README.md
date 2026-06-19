@@ -42,8 +42,9 @@ PYTHONPATH=src python -m sm64_sql --repo /path/to/sm64 --db sm64.db
 ## Web playground
 
 [`web/`](web/) is a static, zero-backend site that loads the database into your
-browser with [sql.js](https://sql.js.org) and lets you run your own SQL, browse
-the schema, try curated example queries, and explore visual tabs — a map of any
+browser with [sql.js](https://sql.js.org) and lets you run your own SQL (with
+syntax highlighting and schema-aware autocomplete), browse the schema, try
+curated example queries, and explore visual tabs — a map of any
 level's placed objects, an object × level/course heatmap, and a treemap of the
 game's object population (the last two built on [D3](https://d3js.org)). Every
 chart cell links back to the JOIN behind it. It's all client-side, so nothing

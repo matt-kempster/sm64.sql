@@ -169,6 +169,27 @@ main { flex: 1; min-height: 0; display: flex; }
   background: #fcfbf7;
 }
 #sql:focus { outline: 2px solid var(--blue); border-color: var(--blue); }
+
+/* CodeMirror editor (replaces the textarea when the CDN loads). */
+.CodeMirror {
+  height: 180px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.5;
+  background: #fcfbf7;
+}
+.CodeMirror-focused { outline: 2px solid var(--blue); border-color: var(--blue); }
+.CodeMirror-gutters { background: #f4efe1; border-right: 1px solid var(--line); }
+.CodeMirror-hints {
+  font-family: var(--mono);
+  font-size: 13px;
+  z-index: 30;
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+.CodeMirror-hint-active { background: var(--blue); color: #fff; }
 .editor-actions {
   display: flex;
   align-items: center;

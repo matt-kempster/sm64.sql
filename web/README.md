@@ -38,6 +38,8 @@ Actions**.
 - `style.css` — styling
 - `sm64.db` — the generated database (gitignored)
 
-The page loads [sql.js](https://sql.js.org) and [D3](https://d3js.org) (treemap
-layout + color scales) from a CDN; everything else is local and dependency-free.
-Each chart cell links back to the JOIN behind it, opened in the Query tab.
+The page loads [sql.js](https://sql.js.org), [D3](https://d3js.org) (treemap
+layout + color scales), and [CodeMirror 5](https://codemirror.net/5/) (SQL
+highlighting + schema-aware autocomplete) from a CDN; everything else is local
+and dependency-free. The autocomplete table/column list is built from the live
+database schema. Each chart cell copies the JOIN behind it to the clipboard.
