@@ -16,7 +16,15 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Topic :: Games/Entertainment",
 ]
-dependencies = []
+# tree-sitter parses the C function bodies in src/game/behaviors/ (see
+# behavior_call.py). It is a build-time dependency only: it runs inside the
+# sm64-sql CLI to produce sm64.db and never ships to the web client, which loads
+# the finished database via sql.js. Pinned to 0.21.x because 0.22 changed the
+# Language()/Parser() API, and 0.21.3 is the last line with Python 3.8 wheels.
+dependencies = [
+    "tree-sitter>=0.21,<0.22",
+    "tree-sitter-c>=0.21,<0.22",
+]
 
 [project.urls]
 Homepage = "https://github.com/matt-kempster/sm64.sql"
