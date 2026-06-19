@@ -23,17 +23,17 @@ const PLANES = {
 const PAD = 28;
 
 const POINTS_SQL = `
-  SELECT 'object' AS kind, initial_x AS x, initial_y AS y, initial_z AS z,
+  SELECT 'object' AS kind, area, initial_x AS x, initial_y AS y, initial_z AS z,
          behavior AS label, model_name AS model
   FROM object WHERE level = $lvl
   UNION ALL
-  SELECT 'macro', mo.pos_x, mo.pos_y, mo.pos_z,
+  SELECT 'macro', mo.area, mo.pos_x, mo.pos_y, mo.pos_z,
          COALESCE(mp.behavior, mo.macro_name), mp.model_name
   FROM macro_object mo
   LEFT JOIN macro_preset mp ON mp.macro_name = mo.macro_name
   WHERE mo.level = $lvl
   UNION ALL
-  SELECT 'special', so.pos_x, so.pos_y, so.pos_z,
+  SELECT 'special', so.area, so.pos_x, so.pos_y, so.pos_z,
          COALESCE(sp.behavior, so.preset_name), sp.model_name
   FROM special_object so
   LEFT JOIN special_preset sp ON sp.preset_id = so.preset_id
@@ -44,6 +44,7 @@ const hidden = new Set(); // kinds toggled off via the legend
 
 const m = {
   level: () => document.getElementById("map-level"),
+  area: () => document.getElementById("map-area"),
   plane: () => document.getElementById("map-plane"),
   bg: () => document.getElementById("map-bg"),
   bgLabel: () => document.getElementById("map-bg-label"),
@@ -67,6 +68,37 @@ function queryLevels() {
      ORDER BY level`
   );
   return r.length ? r[0].values.map((v) => v[0]) : [];
+}
+
+function queryAreas(level) {
+  const r = currentDb().exec(
+    `SELECT DISTINCT area FROM (
+       SELECT area FROM object WHERE level = $lvl
+       UNION SELECT area FROM macro_object WHERE level = $lvl
+       UNION SELECT area FROM special_object WHERE level = $lvl
+     ) ORDER BY area`,
+    { $lvl: level }
+  );
+  return r.length ? r[0].values.map((v) => v[0]) : [];
+}
+
+// Rebuild the Area dropdown for a level: "All areas" plus one entry per area.
+// Defaults to the lowest area so a level map shows straight away.
+function populateAreas(level) {
+  const sel = m.area();
+  sel.innerHTML = "";
+  const all = document.createElement("option");
+  all.value = "all";
+  all.textContent = "All areas";
+  sel.appendChild(all);
+  const areas = queryAreas(level);
+  areas.forEach((a) => {
+    const opt = document.createElement("option");
+    opt.value = String(a);
+    opt.textContent = "Area " + a;
+    sel.appendChild(opt);
+  });
+  sel.value = areas.length ? String(areas[0]) : "all";
 }
 
 function queryPoints(level) {
@@ -99,7 +131,13 @@ function buildLegend(counts) {
 function render() {
   const level = m.level().value;
   if (!level) return;
-  const all = queryPoints(level);
+
+  // The selected area filters the placements; "all" overlays every area (and
+  // gets no background, since each area has its own coordinate system).
+  const areaSel = m.area().value || "all";
+  const all = queryPoints(level).filter(
+    (p) => areaSel === "all" || String(p.area) === areaSel
+  );
 
   const counts = {};
   all.forEach((p) => (counts[p.kind] = (counts[p.kind] || 0) + 1));
@@ -107,10 +145,13 @@ function render() {
 
   const plane = PLANES[m.plane().value] || PLANES.xz;
 
-  // A level-map background exists only for the top-down (x/z) plane, and only
-  // for levels STROOP shipped an image for. Enable the toggle accordingly.
+  // A level-map background exists only for the top-down (x/z) plane, for a
+  // single selected area, and only where STROOP shipped an image for it.
   const maps = window.SM64_MAPS || {};
-  const mapInfo = plane.h === "x" && plane.v === "z" ? maps[level] : null;
+  const mapInfo =
+    plane.h === "x" && plane.v === "z" && areaSel !== "all" && maps[level]
+      ? maps[level][areaSel]
+      : null;
   m.bg().disabled = !mapInfo;
   m.bgLabel().classList.toggle("disabled", !mapInfo);
   const useBg = !!mapInfo && m.bg().checked;
@@ -219,7 +260,12 @@ function ensureInit() {
     select.appendChild(opt);
   });
   if (levels.includes("bob")) select.value = "bob";
-  select.addEventListener("change", render);
+  populateAreas(select.value);
+  select.addEventListener("change", () => {
+    populateAreas(select.value);
+    render();
+  });
+  m.area().addEventListener("change", render);
   m.plane().addEventListener("change", render);
   m.bg().addEventListener("change", render);
 

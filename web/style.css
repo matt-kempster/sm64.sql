@@ -329,7 +329,8 @@ tbody tr:hover { background: #fbfaf4; }
   align-items: center;
   gap: 8px;
 }
-#map-level {
+#map-level,
+#map-area {
   font: 600 14px var(--mono);
   padding: 7px 10px;
   border: 1px solid var(--line);

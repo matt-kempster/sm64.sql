@@ -64,6 +64,9 @@
           <label>Level
             <select id="map-level"></select>
           </label>
+          <label>Area
+            <select id="map-area"></select>
+          </label>
           <label>Plane
             <select id="map-plane">
               <option value="xz">x / z (top-down)</option>
@@ -81,10 +84,11 @@
           <svg id="map-svg" xmlns="http://www.w3.org/2000/svg"></svg>
           <div class="map-tooltip" id="map-tooltip"></div>
         </div>
-        <p class="note"><span id="map-axes"></span> All areas of a level are overlaid. Hover a dot for details.
-          The top-down <strong>Level map</strong> background uses level images from
+        <p class="note"><span id="map-axes"></span> Pick an <strong>Area</strong> to see just that area on its own
+          map, or <em>All areas</em> to overlay them. Hover a dot for details. The top-down
+          <strong>Level map</strong> background uses per-area level images from
           <a href="https://github.com/SM64-TAS-ABC/STROOP" target="_blank" rel="noopener">STROOP</a>
-          (MIT) registered to world coordinates; multi-area levels show their main area's map.</p>
+          (MIT) registered to world coordinates.</p>
       </div>
     </section>
 
