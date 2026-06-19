@@ -598,6 +598,81 @@ table.heatmap .colhead:hover .rot { color: var(--blue); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 760px) {
-  #tab-query { flex-direction: column; }
-  .sidebar { width: 100%; }
+  /* Phones: drop the viewport-pinned shell and let the page scroll naturally.
+     (Desktop pins everything to the viewport and scrolls inner panes, which
+     leaves no room on a small screen.) */
+  html,
+  body {
+    height: auto;
+  }
+  body {
+    overflow: visible;
+  }
+  main {
+    display: block;
+  }
+  .panel.active {
+    display: block;
+  }
+
+  .topbar {
+    padding: 14px 14px 0;
+  }
+  .topbar h1 {
+    font-size: 24px;
+  }
+  .tagline {
+    font-size: 12.5px;
+    margin-bottom: 10px;
+  }
+  .tabs {
+    flex-wrap: wrap;
+  }
+
+  /* Query tab: editor + results first, examples/schema below. */
+  #tab-query {
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    gap: 14px;
+  }
+  .workspace {
+    order: 1;
+  }
+  .sidebar {
+    order: 2;
+    width: 100%;
+    overflow: visible;
+    padding-right: 0;
+  }
+  .results {
+    max-height: 60vh;
+  }
+  .editor-actions {
+    flex-wrap: wrap;
+  }
+  .CodeMirror,
+  #sql {
+    height: 150px;
+  }
+
+  /* Visual tabs need an explicit height once the page (not a flex parent)
+     provides the scroll. */
+  .map-wrap,
+  .heat-wrap,
+  .tm-wrap {
+    padding: 12px;
+  }
+  .map-stage,
+  .tm-stage,
+  .heat-scroll {
+    height: 72vh;
+    min-height: 320px;
+  }
+  table.heatmap .rowhead,
+  table.heatmap .corner {
+    width: 120px;
+    min-width: 120px;
+    max-width: 120px;
+  }
 }
