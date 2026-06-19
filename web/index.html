@@ -48,9 +48,19 @@
 
     <!-- ===================== MAP TAB ===================== -->
     <section class="panel" id="tab-map">
-      <div class="map-coming">
-        <h2>🗺️ Level object map</h2>
-        <p>A top-down plot of every placed object, coming in the next step.</p>
+      <div class="map-wrap">
+        <div class="map-controls">
+          <label>Level
+            <select id="map-level"></select>
+          </label>
+          <div class="legend" id="map-legend"></div>
+          <span class="status" id="map-status"></span>
+        </div>
+        <div class="map-stage" id="map-stage">
+          <svg id="map-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="map-tooltip" id="map-tooltip"></div>
+        </div>
+        <p class="note">Top-down view (x horizontal, z vertical). All areas of a level are overlaid. Hover a dot for details.</p>
       </div>
     </section>
   </main>
@@ -70,5 +80,6 @@
 
   <script src="examples.js"></script>
   <script src="app.js"></script>
+  <script src="map.js"></script>
 </body>
 </html>

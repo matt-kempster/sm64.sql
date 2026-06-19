@@ -36,6 +36,7 @@ async function boot() {
     if (!resp.ok) throw new Error(`could not load ${DB_URL} (${resp.status})`);
     originalBytes = new Uint8Array(await resp.arrayBuffer());
     db = new SQL.Database(originalBytes);
+    window.sm64db = () => db; // shared with map.js
 
     buildExamples();
     buildSchema();
@@ -236,6 +237,8 @@ function wireEvents() {
       document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
       tab.classList.add("active");
       $("#tab-" + tab.dataset.tab).classList.add("active");
+      // The map needs the panel visible to measure itself, so render on show.
+      if (tab.dataset.tab === "map" && window.SM64Map) window.SM64Map.onShow();
     });
   });
 }

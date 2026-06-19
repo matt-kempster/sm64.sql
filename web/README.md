@@ -31,6 +31,7 @@ Actions**.
 
 - `index.html` — page shell and tab layout
 - `app.js` — loads sql.js + the database, runs queries, renders results/schema
+- `map.js` — the Map tab: a top-down (x/z) scatter of a level's placed objects
 - `examples.js` — the curated example queries shown in the sidebar
 - `style.css` — styling
 - `sm64.db` — the generated database (gitignored)
