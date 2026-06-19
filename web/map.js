@@ -44,12 +44,12 @@ const m = {
   tip: () => document.getElementById("map-tooltip"),
 };
 
-function db() {
+function currentDb() {
   return window.sm64db();
 }
 
 function queryLevels() {
-  const r = db().exec(
+  const r = currentDb().exec(
     `SELECT level FROM object
      UNION SELECT level FROM macro_object
      UNION SELECT level FROM special_object
@@ -59,7 +59,7 @@ function queryLevels() {
 }
 
 function queryPoints(level) {
-  const stmt = db().prepare(POINTS_SQL);
+  const stmt = currentDb().prepare(POINTS_SQL);
   stmt.bind({ $lvl: level });
   const pts = [];
   while (stmt.step()) pts.push(stmt.getAsObject());
