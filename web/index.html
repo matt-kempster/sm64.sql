@@ -8,6 +8,8 @@
   <!-- sql.js: SQLite compiled to WebAssembly. The whole database runs in your
        browser; nothing is sent anywhere, so there is no server to inject. -->
   <script src="https://cdn.jsdelivr.net/npm/sql.js@1.12.0/dist/sql-wasm.js"></script>
+  <!-- D3 (treemap layout + color scales) for the Treemap tab. -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -17,6 +19,7 @@
       <button class="tab active" data-tab="query">Query</button>
       <button class="tab" data-tab="map">Map</button>
       <button class="tab" data-tab="heatmap">Heatmap</button>
+      <button class="tab" data-tab="treemap">Treemap</button>
     </nav>
   </header>
 
@@ -98,6 +101,24 @@
           Click a cell — or a row/column label — to open the JOIN behind it in the Query tab.</p>
       </div>
     </section>
+
+    <!-- ===================== TREEMAP TAB ===================== -->
+    <section class="panel" id="tab-treemap">
+      <div class="tm-wrap">
+        <div class="tm-controls">
+          <div class="legend" id="tm-legend"></div>
+          <span class="status" id="tm-status"></span>
+        </div>
+        <div class="tm-stage" id="tm-stage">
+          <svg id="tm-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="map-tooltip" id="tm-tooltip"></div>
+        </div>
+        <p class="note">Each block is a level, sized by how many objects it contains; inside, each tile is
+          an object behavior sized by count and colored by its object list
+          (<code>object</code> JOIN <code>behavior</code>). Hover for details; click a tile to open its
+          placements in the Query tab.</p>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
@@ -117,5 +138,6 @@
   <script src="app.js"></script>
   <script src="map.js"></script>
   <script src="heatmap.js"></script>
+  <script src="treemap.js"></script>
 </body>
 </html>

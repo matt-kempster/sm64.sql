@@ -31,7 +31,13 @@ Actions**.
 
 - `index.html` — page shell and tab layout
 - `app.js` — loads sql.js + the database, runs queries, renders results/schema
-- `map.js` — the Map tab: a top-down (x/z) scatter of a level's placed objects
+- `map.js` — the Map tab: a top-down/front/side scatter of a level's objects
+- `heatmap.js` — the Heatmap tab: object × level/course crosstab
+- `treemap.js` — the Treemap tab: game object population as nested rectangles
 - `examples.js` — the curated example queries shown in the sidebar
 - `style.css` — styling
 - `sm64.db` — the generated database (gitignored)
+
+The page loads [sql.js](https://sql.js.org) and [D3](https://d3js.org) (treemap
+layout + color scales) from a CDN; everything else is local and dependency-free.
+Each chart cell links back to the JOIN behind it, opened in the Query tab.

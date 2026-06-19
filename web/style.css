@@ -432,6 +432,54 @@ table.heatmap .colhead .rot {
 }
 table.heatmap .colhead:hover .rot { color: var(--blue); }
 
+/* ---------- treemap ---------- */
+.tm-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 24px;
+  gap: 12px;
+  min-height: 0;
+  width: 100%;
+}
+.tm-controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.legend-item.static { cursor: default; }
+.tm-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  overflow: hidden;
+}
+#tm-svg { display: block; }
+.tm-lvl-box {
+  fill: #f4efe1;
+  stroke: #d8cdb0;
+  stroke-width: 1;
+}
+.tm-lvl-label {
+  font: 700 11px var(--mono);
+  fill: #6a6047;
+  pointer-events: none;
+}
+.tm-cell rect { cursor: pointer; }
+.tm-cell rect:hover { stroke: var(--ink); stroke-width: 1.5; }
+.tm-cell-label {
+  font: 10px var(--mono);
+  fill: #fff;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.25);
+  stroke-width: 2px;
+}
+
 /* ---------- footer ---------- */
 .footer {
   border-top: 1px solid var(--line);
