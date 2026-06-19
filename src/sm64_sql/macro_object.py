@@ -9,6 +9,7 @@ from sm64_sql.parse_utils import extract_macro_args
 class SM64MacroObject:
     macro_name: str
     level: str
+    area: int  # AREA the macro array belongs to (from levels/<lvl>/areas/<n>/), 0 if none
     yaw: int
     pos_x: int
     pos_y: int
@@ -17,7 +18,9 @@ class SM64MacroObject:
     bhv_param_value: Optional[int]  # resolved value, or NULL if symbolic
 
 
-def try_parse_macro_object(line: str, level_name: str) -> Optional[SM64MacroObject]:
+def try_parse_macro_object(
+    line: str, level_name: str, area: int = 0
+) -> Optional[SM64MacroObject]:
     # The macro is spelled MACRO_OBJECT_WITH_BHV_PARAM in the decomp. It adds a
     # trailing bhvParam argument; the preset/yaw/pos arguments keep their
     # positions, so both variants are read the same way.
@@ -38,6 +41,7 @@ def try_parse_macro_object(line: str, level_name: str) -> Optional[SM64MacroObje
     return SM64MacroObject(
         macro_name=line_parts[0],
         level=level_name,
+        area=area,
         yaw=int(line_parts[1]),
         pos_x=int(line_parts[2]),
         pos_y=int(line_parts[3]),

@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type
@@ -16,7 +17,7 @@ from sm64_sql.mario_animation import SM64MarioAnimation, parse_mario_animations
 from sm64_sql.model import SM64Model, parse_model_ids
 from sm64_sql.model_load import SM64ModelLoad, parse_model_loads
 from sm64_sql.object import SM64Object, try_parse_object
-from sm64_sql.parse_utils import parse_c_enum
+from sm64_sql.parse_utils import extract_macro_args, parse_c_enum
 from sm64_sql.sequence import SM64Sequence, parse_sequences
 from sm64_sql.sound import SM64Sound, parse_sounds
 from sm64_sql.special import (
@@ -291,23 +292,68 @@ def area_from_path(path: Path) -> int:
 
 
 def parse_levelscript(path: Path) -> List[SM64Object]:
-    script = path.read_text().splitlines()
+    """Parse OBJECT placements from a level script.c, tagging each with its AREA.
+
+    Objects live in ``static const LevelScript script_func_local_N[]`` arrays
+    that an AREA block pulls in with ``JUMP_LINK``, so an object's area is the
+    area whose block JUMP_LINKs the array the object is defined in (or, when an
+    OBJECT sits directly inside an AREA block, that area). Objects reachable from
+    no area -- e.g. shared global scripts -- keep area 0.
+    """
     level_name = path.parent.name
-    sm64_objects = []
-    for line in script:
-        line = line.strip()
+    tagged: List[Tuple[SM64Object, Optional[str]]] = []  # (object, container key)
+    area_of_array: Dict[str, int] = {}
+    container: Optional[str] = None  # current array name, or "@<n>" inside an AREA
+    current_area: Optional[int] = None
+
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+
+        array_match = re.match(r"static const LevelScript (\w+)\[\]", line)
+        if array_match:
+            container = array_match.group(1)
+            current_area = None
+            continue
+
+        area_args = extract_macro_args(line, "AREA")
+        if area_args is not None:
+            try:
+                current_area = int(area_args[0])
+            except ValueError:
+                current_area = 0
+            container = f"@{current_area}"
+            continue
+        if line.startswith("END_AREA"):
+            current_area = None
+            container = None
+            continue
+
+        if current_area is not None:
+            jump = extract_macro_args(line, "JUMP_LINK")
+            if jump:
+                area_of_array[jump[0]] = current_area
+                continue
+
         if sm64_object := try_parse_object(line, level_name):
-            sm64_objects.append(sm64_object)
-    return sm64_objects
+            tagged.append((sm64_object, container))
+
+    objects: List[SM64Object] = []
+    for sm64_object, container in tagged:
+        if container is not None and container.startswith("@"):
+            sm64_object.area = int(container[1:])
+        else:
+            sm64_object.area = area_of_array.get(container, 0)
+        objects.append(sm64_object)
+    return objects
 
 
 def parse_macro_file(path: Path, level_name: str) -> List[SM64MacroObject]:
-    script = path.read_text().splitlines()
-    # TODO: figure out what to do with areas in the path
+    # Macro arrays live at levels/<lvl>/areas/<n>/macro.inc.c, so the area is the
+    # number in the path.
+    area = area_from_path(path)
     sm64_macro_objects = []
-    for line in script:
-        line = line.strip()
-        if sm64_macro_object := try_parse_macro_object(line, level_name):
+    for line in path.read_text().splitlines():
+        if sm64_macro_object := try_parse_macro_object(line.strip(), level_name, area):
             sm64_macro_objects.append(sm64_macro_object)
     return sm64_macro_objects
 

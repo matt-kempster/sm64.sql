@@ -9,6 +9,7 @@ from sm64_sql.parse_utils import extract_macro_args
 class SM64Object:
     model_name: str
     level: str
+    area: int  # AREA the object is placed in (resolved in parse_levelscript); 0 if none
     initial_x: int
     initial_y: int
     initial_z: int
@@ -62,6 +63,7 @@ def try_parse_object(line: str, level: str) -> Optional[SM64Object]:
 
     return SM64Object(
         level=level,
+        area=0,  # filled in by parse_levelscript once AREA/JUMP_LINK is resolved
         model_name=line_parts[0],
         initial_x=int(line_parts[1]),
         initial_y=int(line_parts[2]),

@@ -36,6 +36,16 @@ def test_parse_macro_object_with_symbolic_bhv_param():
     assert obj.bhv_param_value is None
 
 
+def test_parse_macro_object_records_area():
+    line = (
+        "MACRO_OBJECT(/*preset*/ macro_yellow_coin_2, /*yaw*/ 0, /*pos*/ 1740, 0, 900),"
+    )
+    obj = try_parse_macro_object(line, "ccm", 2)
+    assert obj is not None and obj.area == 2
+    # Area defaults to 0 when not supplied.
+    assert try_parse_macro_object(line, "ccm").area == 0
+
+
 def test_macro_object_end_is_ignored():
     assert try_parse_macro_object("MACRO_OBJECT_END(),", "bob") is None
 

@@ -26,6 +26,7 @@ def _everything():
     obj = SM64Object(
         model_name="MODEL_GOOMBA",
         level="bob",
+        area=1,
         initial_x=1,
         initial_y=2,
         initial_z=3,
@@ -52,6 +53,7 @@ def _everything():
             SM64MacroObject(
                 macro_name="macro_goomba",
                 level="bob",
+                area=1,
                 yaw=0,
                 pos_x=10,
                 pos_y=20,

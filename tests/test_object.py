@@ -1,6 +1,52 @@
 import pytest
 
+from sm64_sql.everything import parse_levelscript
 from sm64_sql.object import parse_acts, try_parse_object
+
+
+def test_parse_object_defaults_area_to_zero():
+    line = "OBJECT(/*model*/ MODEL_GOOMBA, /*pos*/ 1, 2, 3, /*angle*/ 0, 0, 0, /*bhvParam*/ 0, /*bhv*/ bhvGoomba),"
+    obj = try_parse_object(line, "bob")
+    assert obj is not None and obj.area == 0
+
+
+def test_parse_levelscript_resolves_area_via_jump_link(tmp_path):
+    # Objects defined in a local array get the area of the AREA block that
+    # JUMP_LINKs that array; objects directly inside an AREA get that area; ones
+    # reachable from no area stay 0.
+    script = """\
+static const LevelScript script_func_local_1[] = {
+    OBJECT(/*model*/ MODEL_A, /*pos*/ 0, 0, 0, /*angle*/ 0, 0, 0, /*bhvParam*/ 0, /*bhv*/ bhvA),
+};
+static const LevelScript script_func_local_2[] = {
+    OBJECT(/*model*/ MODEL_B, /*pos*/ 0, 0, 0, /*angle*/ 0, 0, 0, /*bhvParam*/ 0, /*bhv*/ bhvB),
+};
+static const LevelScript script_func_global_1[] = {
+    OBJECT(/*model*/ MODEL_G, /*pos*/ 0, 0, 0, /*angle*/ 0, 0, 0, /*bhvParam*/ 0, /*bhv*/ bhvG),
+};
+const LevelScript level_demo_entry[] = {
+    JUMP_LINK(script_func_global_1),
+    AREA(/*index*/ 1, demo_geo_1),
+        JUMP_LINK(script_func_local_1),
+        OBJECT(/*model*/ MODEL_D, /*pos*/ 0, 0, 0, /*angle*/ 0, 0, 0, /*bhvParam*/ 0, /*bhv*/ bhvD),
+    END_AREA(),
+    AREA(/*index*/ 2, demo_geo_2),
+        JUMP_LINK(script_func_local_2),
+    END_AREA(),
+};
+"""
+    level_dir = tmp_path / "demo"
+    level_dir.mkdir()
+    (level_dir / "script.c").write_text(script)
+
+    objects = parse_levelscript(level_dir / "script.c")
+    area_by_model = {o.model_name: o.area for o in objects}
+    assert area_by_model == {
+        "MODEL_A": 1,  # via JUMP_LINK(script_func_local_1) from AREA 1
+        "MODEL_D": 1,  # directly inside AREA 1
+        "MODEL_B": 2,  # via JUMP_LINK(script_func_local_2) from AREA 2
+        "MODEL_G": 0,  # global script, not linked from any area
+    }
 
 
 def test_parse_object_basic_is_in_all_acts():
