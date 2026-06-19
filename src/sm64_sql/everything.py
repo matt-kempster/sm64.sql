@@ -464,8 +464,10 @@ def parse_levelscript(path: Path) -> List[SM64Object]:
     for sm64_object, container in tagged:
         if container is not None and container.startswith("@"):
             sm64_object.area = int(container[1:])
-        else:
+        elif container is not None:
             sm64_object.area = area_of_array.get(container, 0)
+        else:
+            sm64_object.area = 0
         objects.append(sm64_object)
     return objects
 

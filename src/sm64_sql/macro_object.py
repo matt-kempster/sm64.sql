@@ -9,7 +9,7 @@ from sm64_sql.parse_utils import extract_macro_args
 class SM64MacroObject:
     macro_name: str
     level: str
-    area: int  # AREA the macro array belongs to (from levels/<lvl>/areas/<n>/), 0 if none
+    area: int  # AREA the macro array belongs to (from the areas/<n>/ path); 0 if none
     yaw: int
     pos_x: int
     pos_y: int
