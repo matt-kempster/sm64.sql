@@ -92,7 +92,7 @@
         <p class="note">Rows are the game's object lists (<code>behavior.obj_list</code>); click one to expand it
           into its behaviors. Each cell counts placements in that level/course
           (<code>object</code> JOIN <code>behavior</code> JOIN <code>level</code>); darker = more.
-          Click a cell — or a row/column label — to open the JOIN behind it in the Query tab.</p>
+          Click a cell — or a row/column label — to copy the JOIN behind it to the clipboard.</p>
       </div>
     </section>
 
@@ -107,10 +107,10 @@
           <svg id="tm-svg" xmlns="http://www.w3.org/2000/svg"></svg>
           <div class="map-tooltip" id="tm-tooltip"></div>
         </div>
-        <p class="note">Each block is a level, sized by how many objects it contains; inside, each tile is
-          an object behavior sized by count and colored by its object list
-          (<code>object</code> JOIN <code>behavior</code>). Hover for details; click a tile to open its
-          placements in the Query tab.</p>
+        <p class="note">Each block is a level, sized by how many objects it contains; inside, objects are grouped
+          by object list (<code>behavior.obj_list</code>), then by behavior — each tile sized by count
+          and colored by its list (<code>object</code> JOIN <code>behavior</code>). Hover for details;
+          click a tile to copy its placements query.</p>
       </div>
     </section>
   </main>

@@ -1,10 +1,12 @@
 "use strict";
 
 // ---------------------------------------------------------------------------
-// Treemap tab: the whole game's object population as nested rectangles. Each
-// level is a block sized by its object count; inside, each tile is a behavior
-// sized by count and colored by its object list (object JOIN behavior). Layout
-// is D3's squarified treemap. Wrapped in an IIFE; app.js owns the global `db`.
+// Treemap tab: the whole game's object population as a nested treemap, three
+// tiers deep -- level → object list → behavior. Each level block is sized by
+// its object count, split into object-list groups, each split into behaviors
+// (leaves) sized by count and colored by object list (object JOIN behavior).
+// Layout is D3's squarified treemap. Clicking a tile copies its query.
+// Wrapped in an IIFE; app.js owns the global `db`.
 // ---------------------------------------------------------------------------
 
 (function () {
@@ -33,19 +35,29 @@
     ])
     .range(d3.schemeTableau10);
 
-  function loadLevels() {
+  // level → object list → behaviors (leaves)
+  function loadTree() {
     const r = sdb().exec(
-      `SELECT o.level, o.behavior, b.obj_list, COUNT(*) c
+      `SELECT o.level, o.behavior, COALESCE(b.obj_list, '') AS olist, COUNT(*) c
        FROM object o LEFT JOIN behavior b ON o.behavior = b.behavior_name
        GROUP BY o.level, o.behavior`
     );
     const rows = r.length ? r[0].values : [];
-    const byLevel = new Map();
+    const levels = new Map();
     rows.forEach(([level, beh, olist, c]) => {
-      if (!byLevel.has(level)) byLevel.set(level, []);
-      byLevel.get(level).push({ name: beh, obj_list: olist || "", value: c });
+      if (!levels.has(level)) levels.set(level, new Map());
+      const cats = levels.get(level);
+      if (!cats.has(olist)) cats.set(olist, []);
+      cats.get(olist).push({ name: beh, obj_list: olist, value: c });
     });
-    return Array.from(byLevel, ([name, children]) => ({ name, children }));
+    return Array.from(levels, ([name, cats]) => ({
+      name,
+      children: Array.from(cats, ([cname, behs]) => ({
+        name: cname,
+        obj_list: cname,
+        children: behs,
+      })),
+    }));
   }
 
   function leafQuery(level, beh) {
@@ -80,32 +92,31 @@ ORDER BY level;`;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     if (W < 2 || H < 2) return;
 
-    const levels = loadLevels();
     const root = d3
-      .hierarchy({ name: "root", children: levels })
+      .hierarchy({ name: "root", children: loadTree() })
       .sum((d) => d.value || 0)
       .sort((a, b) => b.value - a.value);
 
     d3
       .treemap()
       .size([W, H])
-      .paddingInner(1)
-      .paddingTop(15)
       .paddingOuter(2)
+      .paddingTop((d) => (d.depth === 1 ? 16 : d.depth === 2 ? 12 : 0))
+      .paddingInner((d) => (d.depth === 1 ? 3 : 1))
       .round(true)(root);
 
     const present = Array.from(new Set(root.leaves().map((d) => d.data.obj_list))).sort();
     buildLegend(present);
     el("tm-status").textContent =
-      `${levels.length} levels · ${root.leaves().length} object types · ${root.value} placements`;
+      `${(root.children || []).length} levels · ${root.leaves().length} object types · ${root.value} placements`;
 
     const tip = el("tm-tooltip");
     const sel = d3.select(svg);
 
-    // Level blocks (depth 1): border + name label in the reserved top strip.
+    // Level blocks (depth 1): background + name in the reserved top strip.
     const lvl = sel
       .selectAll("g.tm-lvl")
-      .data(root.children || [])
+      .data(root.descendants().filter((d) => d.depth === 1))
       .join("g")
       .attr("class", "tm-lvl");
     lvl
@@ -122,6 +133,30 @@ ORDER BY level;`;
       .attr("x", (d) => d.x0 + 4)
       .attr("y", (d) => d.y0 + 11)
       .text((d) => d.data.name);
+
+    // Object-list groups (depth 2): a tinted border + label, showing the tier.
+    const cat = sel
+      .selectAll("g.tm-cat")
+      .data(root.descendants().filter((d) => d.depth === 2))
+      .join("g")
+      .attr("class", "tm-cat");
+    cat
+      .append("rect")
+      .attr("x", (d) => d.x0)
+      .attr("y", (d) => d.y0)
+      .attr("width", (d) => d.x1 - d.x0)
+      .attr("height", (d) => d.y1 - d.y0)
+      .attr("fill", "none")
+      .attr("stroke", (d) => d3.color(color(d.data.obj_list)).darker(0.7))
+      .attr("stroke-width", 1);
+    cat
+      .filter((d) => d.x1 - d.x0 > 46 && d.y1 - d.y0 > 22)
+      .append("text")
+      .attr("class", "tm-cat-label")
+      .attr("x", (d) => d.x0 + 3)
+      .attr("y", (d) => d.y0 + 10)
+      .attr("fill", (d) => d3.color(color(d.data.obj_list)).darker(1.2))
+      .text((d) => catLabel(d.data.obj_list));
 
     // Behavior tiles (leaves).
     const leaf = sel
@@ -140,7 +175,7 @@ ORDER BY level;`;
       .on("mousemove", (event, d) => {
         tip.innerHTML =
           `<strong>${strip(d.data.name)}</strong> × ${d.value}<br>` +
-          `<span class="muted">${d.parent.data.name} · ${catLabel(d.data.obj_list)}</span>`;
+          `<span class="muted">${d.parent.parent.data.name} · ${catLabel(d.data.obj_list)}</span>`;
         tip.style.display = "block";
         const r = stage.getBoundingClientRect();
         tip.style.left = event.clientX - r.left + 12 + "px";
@@ -148,7 +183,7 @@ ORDER BY level;`;
       })
       .on("mouseleave", () => (tip.style.display = "none"))
       .on("click", (event, d) =>
-        window.sm64RunInQuery(leafQuery(d.parent.data.name, d.data.name))
+        window.sm64CopyQuery(leafQuery(d.parent.parent.data.name, d.data.name))
       );
 
     // Label tiles big enough to hold text.

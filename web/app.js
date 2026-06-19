@@ -70,20 +70,45 @@ function runQuery() {
   renderResults(resultSets, ms);
 }
 
-// Visual tabs call this to hand a JOIN to the Query tab and run it, so every
-// chart cell is backed by SQL the user can see and edit.
-function showQueryWith(sql) {
-  els.sql.value = sql;
-  document
-    .querySelectorAll(".tab")
-    .forEach((t) => t.classList.toggle("active", t.dataset.tab === "query"));
-  document
-    .querySelectorAll(".panel")
-    .forEach((p) => p.classList.toggle("active", p.id === "tab-query"));
-  runQuery();
-  els.sql.scrollTop = 0;
+// Visual tabs call this to copy the JOIN behind a chart element to the
+// clipboard, so the user can paste it into the Query tab (or anywhere).
+let toastTimer = null;
+function toast(message) {
+  let t = document.getElementById("toast");
+  if (!t) {
+    t = document.createElement("div");
+    t.id = "toast";
+    t.className = "toast";
+    document.body.appendChild(t);
+  }
+  t.textContent = message;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 1600);
 }
-window.sm64RunInQuery = showQueryWith;
+
+async function copyQuery(sql) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(sql);
+    } else {
+      // Fallback for non-secure contexts (e.g. file://).
+      const ta = document.createElement("textarea");
+      ta.value = sql;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    toast("✓ Query copied to clipboard");
+  } catch (err) {
+    console.error(err);
+    toast("Copy failed — see console");
+  }
+}
+window.sm64CopyQuery = copyQuery;
 
 function showError(message) {
   els.status.textContent = "";

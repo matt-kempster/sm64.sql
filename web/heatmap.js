@@ -164,6 +164,7 @@ ORDER BY level;`;
     const htr = document.createElement("tr");
     const corner = document.createElement("th");
     corner.className = "corner";
+    corner.innerHTML = `<span class="corner-label">object list ╲ ${dim}</span>`;
     htr.appendChild(corner);
     cols.forEach((k) => {
       const th = document.createElement("th");
@@ -197,7 +198,7 @@ ORDER BY level;`;
         const v = cat.byCol.get(k) || 0;
         tr.appendChild(
           makeCell(v, catMax, `${catName(cat.name)} × ${strip(k)} = ${v}`, () =>
-            window.sm64RunInQuery(catCellQuery(cat.name, dim, k))
+            window.sm64CopyQuery(catCellQuery(cat.name, dim, k))
           )
         );
       });
@@ -211,13 +212,13 @@ ORDER BY level;`;
           bh.className = "rowhead beh";
           bh.textContent = strip(b.name);
           bh.title = `${b.name} — ${b.total} placed; click for the breakdown`;
-          bh.addEventListener("click", () => window.sm64RunInQuery(behRowQuery(b.name)));
+          bh.addEventListener("click", () => window.sm64CopyQuery(behRowQuery(b.name)));
           btr.appendChild(bh);
           cols.forEach((k) => {
             const v = b.byCol.get(k) || 0;
             btr.appendChild(
               makeCell(v, behMax, `${strip(b.name)} × ${strip(k)} = ${v}`, () =>
-                window.sm64RunInQuery(behCellQuery(b.name, dim, k))
+                window.sm64CopyQuery(behCellQuery(b.name, dim, k))
               )
             );
           });

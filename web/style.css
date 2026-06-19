@@ -396,13 +396,15 @@ table.heatmap .rowhead {
   left: 0;
   z-index: 2;
   background: #f4efe1;
-  text-align: right;
+  text-align: left;
   white-space: nowrap;
   padding: 0 10px;
   font-family: var(--mono);
   font-weight: 600;
   cursor: pointer;
-  max-width: 180px;
+  width: 168px;
+  min-width: 168px;
+  max-width: 168px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -433,22 +435,33 @@ table.heatmap .corner {
   left: 0;
   z-index: 4;
   background: #f4efe1;
+  vertical-align: bottom;
+  text-align: left;
+  padding: 0 10px 8px;
+}
+table.heatmap .corner-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
 }
 table.heatmap .colhead {
-  height: 92px;
+  height: 132px;
   vertical-align: bottom;
   cursor: pointer;
-  padding: 0;
+  padding: 6px 0;
 }
+/* Vertical labels read bottom-to-top and stay within their own column, so the
+   header never drifts sideways and leaves no empty band at the left. */
 table.heatmap .colhead .rot {
-  display: inline-block;
-  transform: rotate(-55deg);
-  transform-origin: left bottom;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
   white-space: nowrap;
   font-family: var(--mono);
   font-weight: 600;
-  margin-left: 20px;
-  padding-bottom: 6px;
+  margin: 0 auto;
+  max-height: 120px;
+  overflow: hidden;
 }
 table.heatmap .colhead:hover .rot { color: var(--blue); }
 
@@ -489,6 +502,12 @@ table.heatmap .colhead:hover .rot { color: var(--blue); }
   fill: #6a6047;
   pointer-events: none;
 }
+.tm-cat-label {
+  font: 700 9px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+}
 .tm-cell rect { cursor: pointer; }
 .tm-cell rect:hover { stroke: var(--ink); stroke-width: 1.5; }
 .tm-cell-label {
@@ -513,6 +532,29 @@ table.heatmap .colhead:hover .rot { color: var(--blue); }
 }
 .footer a { color: var(--blue); }
 .muted { color: var(--muted); font-weight: 400; }
+
+/* ---------- toast ---------- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 12px);
+  background: rgba(29, 35, 48, 0.96);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 20;
+}
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
 
 /* ---------- loading overlay ---------- */
 .loading {
