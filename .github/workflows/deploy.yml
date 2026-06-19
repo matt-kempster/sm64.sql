@@ -43,11 +43,10 @@ jobs:
       - name: Build database into web/
         working-directory: sm64.sql
         run: sm64-sql -r ${{ github.workspace }}/sm64-decomp -d web/sm64.db -o
+      # Requires Pages to be enabled once: repo Settings -> Pages ->
+      # Build and deployment -> Source: "GitHub Actions". The GITHUB_TOKEN
+      # cannot enable it programmatically.
       - uses: actions/configure-pages@v5
-        # Create/enable the Pages site (source = GitHub Actions) on first run,
-        # so no manual Settings step is needed.
-        with:
-          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: sm64.sql/web
