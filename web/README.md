@@ -34,7 +34,9 @@ Actions**.
   (the schema tree shows each table's declared foreign keys as one-click joins)
 - `map.js` — the Map tab: a top-down/front/side scatter of a level's objects
 - `heatmap.js` — the Heatmap tab: object × level/course crosstab
-- `treemap.js` — the Treemap tab: game object population as nested rectangles
+- `treemap.js` — the Treemap tab: game object population as nested rectangles,
+  with a toggle to flip the grouping between `level ▸ type ▸ object` and
+  `type ▸ object ▸ level`
 - `examples.js` — the curated example queries shown in the sidebar
 - `style.css` — styling
 - `sm64.db` — the generated database (gitignored)

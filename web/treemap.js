@@ -1,17 +1,20 @@
 "use strict";
 
 // ---------------------------------------------------------------------------
-// Treemap tab: a nested treemap showing all three tiers at once -- level →
-// object list → behavior -- where every placement of an object counts, drawn
-// from all three placement tables (object + macro_object + special_object),
-// each resolved to a behavior so they share the object-list grouping.
+// Treemap tab: a nested treemap showing all three tiers at once, where every
+// placement of an object counts, drawn from all three placement tables
+// (object + macro_object + special_object), each resolved to a behavior so they
+// share the object-list grouping. The three tiers are level, object-list TYPE
+// and behavior (object); a toggle flips the nesting order between
+//   level ▸ type ▸ object   (levels broken into their object types)
+//   type ▸ object ▸ level   (each object's spread across levels)
 //
-// Colour is by TYPE (object list): each obj_list gets a stable hue, so leaves
-// in the same list share a colour and nothing reshuffles when you zoom. Object
-// lists are a soft tint of that hue, levels a neutral frame. Parents get a
-// taller top band for their label and a thin frame on the other three sides.
-// Clicking a region zooms into it with an animation; the breadcrumb zooms back
-// out; clicking a behavior leaf copies its placements query.
+// Colour is always by TYPE (object list): each obj_list gets a stable hue, so
+// tiles sharing a type share a colour and nothing reshuffles when you zoom.
+// Leaves are vivid, the type frame a soft tint, an object frame a stronger
+// tint, a (mixed) level frame neutral. Parents get a taller top band for their
+// label and a thin frame on the other three sides. Clicking a region zooms in
+// with an animation; the breadcrumb zooms back out; a leaf copies its query.
 //
 // Navigation is a `path` of plain DATA nodes; each draw builds a FRESH d3
 // hierarchy rooted at the focused data (depth 0). d3.treemap indexes padding by
@@ -22,8 +25,17 @@
   const el = (id) => document.getElementById(id);
   const sdb = () => window.sm64db();
   let inited = false;
+  let rawRows = null; // cached SQL rows: [level, behavior, obj_list, count]
   let treeRootData = null;
   let path = [];
+
+  // The two nesting orders. `order` lists the dimensions outer→inner (the last
+  // is the leaf); `root` is the breadcrumb label for the whole view.
+  const MODES = {
+    lto: { order: ["level", "type", "object"], root: "all levels" },
+    tol: { order: ["type", "object", "level"], root: "all types" },
+  };
+  let mode = "lto";
 
   const strip = (s) => String(s).replace(/^bhv/, "");
   const catLabel = (c) => (c ? c.replace(/^OBJ_LIST_/, "").toLowerCase() : "(none)");
@@ -61,29 +73,41 @@
     return SIDE_PAD; // focus container (no label)
   }
 
-  // Fill by type: vivid leaf in its list's hue, soft tint for the list frame,
-  // neutral for the level frame. Keyed on the (stable) type name.
+  // Fill by type, regardless of nesting order: every tile carries the obj_list
+  // it belongs to in `cat` (mixed groups, i.e. a level frame, carry ""). Leaves
+  // are vivid; a type frame is a soft tint; an object frame a stronger tint; a
+  // mixed (level) frame is neutral.
   function fillFor(node) {
-    if (!node.children) return colorByType(node.data.cat || "");
-    if (absDepth(node) === 2) return tint(colorByType(node.data.cat || ""), 0.62);
-    return LEVEL_FRAME;
+    const cat = node.data.cat || "";
+    if (!node.children) return colorByType(cat);
+    if (node.data.dim === "level") return LEVEL_FRAME; // a level frame is neutral
+    return tint(colorByType(cat), node.data.dim === "type" ? 0.62 : 0.45);
   }
 
-  function nodeLabel(node) {
-    if (!node.children) return strip(node.data.name);
-    return absDepth(node) === 2 ? catLabel(node.data.name) : node.data.name;
+  // Label a data node by its dimension, not its depth, so both orders read
+  // right: types lose their OBJ_LIST_ prefix, behaviors their bhv prefix,
+  // levels show as-is.
+  function dataLabel(data) {
+    if (data.dim === "type") return catLabel(data.name);
+    if (data.dim === "object") return strip(data.name);
+    return data.name; // level (or the synthetic root)
+  }
+  const nodeLabel = (node) => dataLabel(node.data);
+
+  // The value of a given dimension for a leaf, looked up across the live
+  // hierarchy (ancestors include the node itself) and then the zoom path above
+  // the current focus -- so it works whichever tier we have zoomed to.
+  function fieldFor(d, dim) {
+    for (const a of d.ancestors()) if (a.data.dim === dim) return a.data.name;
+    for (const p of path.slice(0, -1)) if (p.dim === dim) return p.name;
+    return "";
   }
 
-  // The level a leaf belongs to, whatever the current zoom.
-  function levelOf(d) {
-    for (const a of d.ancestors()) if (absDepth(a) === 1) return a.data.name;
-    return path.length > 1 ? path[1].name : "";
-  }
-
-  // level → object list → behaviors (leaves). Every placement counts: objects
-  // carry their behavior directly; macro/special objects resolve it through
-  // their preset table. obj_list comes from the behavior table.
-  function loadTree() {
+  // Every placement, one row per (level, behavior): objects carry their
+  // behavior directly; macro/special objects resolve it through their preset
+  // table; obj_list (the type) comes from the behavior table. These raw rows
+  // feed either nesting order.
+  function loadRows() {
     const r = sdb().exec(
       `WITH placements AS (
          SELECT o.level AS level, o.behavior AS behavior FROM object o
@@ -98,21 +122,56 @@
        FROM placements p LEFT JOIN behavior b ON p.behavior = b.behavior_name
        GROUP BY p.level, p.behavior`
     );
-    const rows = r.length ? r[0].values : [];
-    const levels = new Map();
-    const cats = new Set();
-    rows.forEach(([level, beh, olist, c]) => {
-      cats.add(olist);
-      if (!levels.has(level)) levels.set(level, new Map());
-      const m = levels.get(level);
-      if (!m.has(olist)) m.set(olist, []);
-      m.get(olist).push({ name: beh || "", value: c, cat: olist });
-    });
-    const tree = Array.from(levels, ([name, m]) => ({
-      name,
-      children: Array.from(m, ([cname, behs]) => ({ name: cname, cat: cname, children: behs })),
+    const rows = (r.length ? r[0].values : []).map(([level, beh, olist, c]) => ({
+      level: level || "",
+      object: beh || "",
+      type: olist || "",
+      count: c,
     }));
-    return { tree, cats: Array.from(cats).sort() };
+    const cats = Array.from(new Set(rows.map((row) => row.type))).sort();
+    return { rows, cats };
+  }
+
+  // The obj_list shared by a set of rows, or "" when they span several. A type
+  // or object group always shares one type; only a level group is mixed (and is
+  // drawn with the neutral frame anyway).
+  function catFor(rows) {
+    let c = null;
+    for (const row of rows) {
+      if (c === null) c = row.type;
+      else if (c !== row.type) return "";
+    }
+    return c || "";
+  }
+
+  // Group the rows into a 3-tier tree following `order` (outer→inner, last is
+  // the leaf). Each node records its `dim` (for labels), its `cat` (for colour)
+  // and -- for leaves -- the placement count as `value`.
+  function buildTree(order) {
+    const [d0, d1, d2] = order;
+    const m0 = new Map();
+    rawRows.forEach((row) => {
+      if (!m0.has(row[d0])) m0.set(row[d0], new Map());
+      const m1 = m0.get(row[d0]);
+      if (!m1.has(row[d1])) m1.set(row[d1], []);
+      m1.get(row[d1]).push(row);
+    });
+    return Array.from(m0, ([k0, m1]) => ({
+      name: k0,
+      dim: d0,
+      cat: catFor(Array.from(m1.values()).flat()),
+      children: Array.from(m1, ([k1, rows]) => ({
+        name: k1,
+        dim: d1,
+        cat: catFor(rows),
+        children: rows.map((row) => ({
+          name: row[d2],
+          dim: d2,
+          cat: row.type,
+          value: row.count,
+        })),
+      })),
+    }));
   }
 
   function leafQuery(level, beh) {
@@ -132,9 +191,7 @@ WHERE s.level = '${L}' AND sp.behavior = '${B}';`;
   }
 
   function crumbLabel(node, i) {
-    if (i === 0) return "all levels";
-    if (i === 2) return catLabel(node.name);
-    return strip(node.name);
+    return i === 0 ? MODES[mode].root : dataLabel(node);
   }
 
   function buildBreadcrumb() {
@@ -200,7 +257,7 @@ WHERE s.level = '${L}' AND sp.behavior = '${B}';`;
           path.push(d.data);
           render({ dir: "in", rect });
         } else {
-          window.sm64CopyQuery(leafQuery(levelOf(d), d.data.name));
+          window.sm64CopyQuery(leafQuery(fieldFor(d, "level"), fieldFor(d, "object")));
         }
       });
 
@@ -260,7 +317,7 @@ WHERE s.level = '${L}' AND sp.behavior = '${B}';`;
 
     buildBreadcrumb();
     el("tm-status").textContent =
-      `${local.leaves().length} behaviors · ${local.value} placements`;
+      `${local.value} placements · ${local.leaves().length} cells`;
 
     // Parents before children so leaves sit on top (and catch clicks first).
     const nodes = local.descendants().slice(1).sort((a, b) => a.depth - b.depth);
@@ -313,9 +370,32 @@ WHERE s.level = '${L}' AND sp.behavior = '${B}';`;
     );
   }
 
+  function syncModeButtons() {
+    el("tm-groupby")
+      .querySelectorAll(".tm-mode")
+      .forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  }
+
+  // Rebuild the whole tree for the current mode and reset the zoom to the root.
+  function rebuild() {
+    treeRootData = { name: "root", children: buildTree(MODES[mode].order) };
+    path = [treeRootData];
+    syncModeButtons();
+    render();
+  }
+
+  function setMode(m) {
+    if (m === mode || !MODES[m]) return;
+    mode = m;
+    rebuild();
+  }
+
   function ensureInit() {
     if (inited) return;
     inited = true;
+    el("tm-groupby")
+      .querySelectorAll(".tm-mode")
+      .forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
     let t = null;
     window.addEventListener("resize", () => {
       clearTimeout(t);
@@ -328,13 +408,12 @@ WHERE s.level = '${L}' AND sp.behavior = '${B}';`;
   window.SM64Treemap = {
     onShow() {
       ensureInit();
-      if (!treeRootData) {
-        const { tree, cats } = loadTree();
-        treeRootData = { name: "root", children: tree };
+      if (!rawRows) {
+        const { rows, cats } = loadRows();
+        rawRows = rows;
         colorByType.domain(cats); // deterministic, stable type→colour mapping
       }
-      path = [treeRootData];
-      render();
+      rebuild();
     },
   };
 })();

@@ -556,6 +556,26 @@ table.heatmap .colhead:hover .rot { color: var(--blue); }
 .tm-crumb:not(.current):hover { background: #eef4ff; }
 .tm-crumb.current { color: var(--ink); cursor: default; }
 .tm-sep { color: var(--muted); }
+/* group-by toggle (segmented control) */
+.tm-groupby {
+  margin-left: auto;
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.tm-mode {
+  appearance: none;
+  background: var(--card);
+  border: none;
+  font: 600 12px var(--mono);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 5px 11px;
+}
+.tm-mode + .tm-mode { border-left: 1px solid var(--line); }
+.tm-mode:not(.active):hover { background: #eef4ff; color: var(--blue); }
+.tm-mode.active { background: var(--blue); color: #fff; cursor: default; }
 
 .tm-stage {
   position: relative;

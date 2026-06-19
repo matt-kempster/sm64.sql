@@ -108,16 +108,21 @@
       <div class="tm-wrap">
         <div class="tm-controls">
           <nav class="tm-breadcrumb" id="tm-breadcrumb"></nav>
+          <div class="tm-groupby" id="tm-groupby" role="group" aria-label="Group by">
+            <button class="tm-mode" data-mode="lto" type="button">level ▸ type ▸ object</button>
+            <button class="tm-mode" data-mode="tol" type="button">type ▸ object ▸ level</button>
+          </div>
           <span class="status" id="tm-status"></span>
         </div>
         <div class="tm-stage" id="tm-stage">
           <svg id="tm-svg" xmlns="http://www.w3.org/2000/svg"></svg>
           <div class="map-tooltip" id="tm-tooltip"></div>
         </div>
-        <p class="note">All three tiers at once — <strong>level → object list → behavior</strong> — each tile sized by
-          placement count and coloured by object-list type. Every placement counts: <code>object</code>,
-          <code>macro_object</code> and <code>special_object</code> are each resolved to a behavior.
-          Click a region to zoom into it; use the breadcrumb to come back out. Click a behavior tile to copy its
+        <p class="note">All three tiers at once, sized by placement count and coloured by object-list type. Every
+          placement counts: <code>object</code>, <code>macro_object</code> and <code>special_object</code> are each
+          resolved to a behavior. Use the toggle to flip the grouping — <strong>level ▸ type ▸ object</strong>, or
+          <strong>type ▸ object ▸ level</strong> to see how each object is spread across levels.
+          Click a region to zoom in; use the breadcrumb to come back out. Click a leaf tile to copy its
           placements query.</p>
       </div>
     </section>
