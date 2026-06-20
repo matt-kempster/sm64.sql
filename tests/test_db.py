@@ -4,6 +4,7 @@ from sm64_sql.area import SM64Area
 from sm64_sql.behavior import SM64Behavior
 from sm64_sql.behavior_call import SM64BehaviorCall, SM64BehaviorDataSpawn
 from sm64_sql.behavior_command import SM64BehaviorCommand
+from sm64_sql.camera_trigger import SM64CameraTrigger
 from sm64_sql.constant import SM64Constant
 from sm64_sql.course import SM64Course
 from sm64_sql.course_text import SM64CourseName, SM64Star
@@ -330,6 +331,43 @@ def _everything():
                 line=456,
             )
         ],
+        sm64_camera_triggers=[
+            SM64CameraTrigger(
+                level="bob",
+                camera_table="sCamBOB",
+                seq=0,
+                area=1,
+                event="cam_bob_tower",
+                center_x=2468,
+                center_y=2720,
+                center_z=-4608,
+                bounds_x=3263,
+                bounds_y=1696,
+                bounds_z=3072,
+                bounds_yaw=0x2000,
+                doc="The BOB triggers control the tower camera.",
+                file="src/game/camera.c",
+                line=6226,
+            ),
+            # A defined-but-unused table: level NULL, surfaced by the residue view.
+            SM64CameraTrigger(
+                level=None,
+                camera_table="sCamUnused",
+                seq=0,
+                area=1,
+                event="cam_unused",
+                center_x=0,
+                center_y=0,
+                center_z=0,
+                bounds_x=10,
+                bounds_y=10,
+                bounds_z=10,
+                bounds_yaw=0,
+                doc=None,
+                file="src/game/camera.c",
+                line=6300,
+            ),
+        ],
     )
 
 
@@ -524,4 +562,17 @@ def test_write_to_db_round_trip():
         "SELECT action_name, to_action FROM mario_all_transitions ORDER BY action_name"
     ).fetchall()
     assert all_t == [("ACT_JUMP", "ACT_WALKING"), ("ACT_WALKING", "ACT_JUMP")]
+
+    # A camera trigger joins to the level it is wired to (on the folder name),
+    # and its decoded box / yaw round-trip.
+    trigger_join = cur.execute(
+        "SELECT l.internal_name, ct.event, ct.center_x, ct.bounds_yaw "
+        "FROM camera_trigger ct JOIN level l ON ct.level = l.folder"
+    ).fetchone()
+    assert trigger_join == ("BATTLE FIELD", "cam_bob_tower", 2468, 0x2000)
+
+    # The defined-but-unused table (level NULL) is surfaced by the residue view,
+    # not silently dropped.
+    unused = cur.execute("SELECT camera_table, n FROM camera_trigger_unused").fetchall()
+    assert unused == [("sCamUnused", 1)]
     conn.close()

@@ -11,6 +11,7 @@ from sm64_sql.behavior_call import (
     parse_behavior_calls,
 )
 from sm64_sql.behavior_command import SM64BehaviorCommand, parse_behavior_commands
+from sm64_sql.camera_trigger import SM64CameraTrigger, parse_camera_triggers
 from sm64_sql.constant import SM64Constant, parse_constants
 from sm64_sql.course import SM64Course, parse_courses
 from sm64_sql.course_text import SM64CourseName, SM64Star, parse_course_text
@@ -68,6 +69,7 @@ class SM64Everything:
     sm64_mario_actions: List[SM64MarioAction]
     sm64_mario_action_calls: List[SM64MarioActionCall]
     sm64_mario_action_data_transitions: List[SM64MarioActionDataTransition]
+    sm64_camera_triggers: List[SM64CameraTrigger]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -105,6 +107,7 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
         SM64MarioActionDataTransition,
         "sm64_mario_action_data_transitions",
     ),
+    ("camera_trigger", SM64CameraTrigger, "sm64_camera_triggers"),
 ]
 
 
@@ -253,6 +256,10 @@ TABLE_KEYS: Dict[str, TableKeys] = {
             _fk("to_action", "mario_action", "action_name"),
         )
     ),
+    # ---- camera trigger zones (spatial, overlaid on the Map tab) ----
+    # level is the folder that wires the table in, NULL for a defined-but-unused
+    # table (sCamBOB); a NULL FK is simply not enforced, which is what we want.
+    "camera_trigger": TableKeys(foreign_keys=(_fk("level", "level", "folder"),)),
 }
 
 
@@ -505,6 +512,21 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         SELECT action_name, to_action FROM mario_action_data_transition
         """,
     ),
+    # ----- camera trigger zones (camera_trigger backbone) -----
+    # Completeness audit: every CameraTrigger table defined in camera.c that no
+    # level wires in via level_defines.h, so its rows have level = NULL. The
+    # decomp ships one such dead table (sCamBOB) -- surfaced, not silently dropped.
+    (
+        "camera_trigger_unused",
+        """
+        CREATE VIEW camera_trigger_unused AS
+        SELECT camera_table, COUNT(*) AS n
+        FROM camera_trigger
+        WHERE level IS NULL
+        GROUP BY camera_table
+        ORDER BY n DESC, camera_table
+        """,
+    ),
 ]
 
 
@@ -723,6 +745,10 @@ def parse_repo(repo: Path) -> SM64Everything:
     sm64_mario_actions = parsed_mario_actions.actions
     sm64_mario_action_calls = parsed_mario_actions.calls
     sm64_mario_action_data_transitions = parsed_mario_actions.data_transitions
+    # Camera trigger zones: world-space boxes that switch the camera's behaviour
+    # while Mario is inside them. Overlaid on the Map tab. The defined-but-unused
+    # sCamBOB table is captured too (its rows resolve to level = NULL).
+    sm64_camera_triggers = parse_camera_triggers(repo)
     sm64_mario_animations = parse_mario_animations(
         repo / "include" / "mario_animation_ids.h"
     )
@@ -765,4 +791,5 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_mario_actions=sm64_mario_actions,
         sm64_mario_action_calls=sm64_mario_action_calls,
         sm64_mario_action_data_transitions=sm64_mario_action_data_transitions,
+        sm64_camera_triggers=sm64_camera_triggers,
     )

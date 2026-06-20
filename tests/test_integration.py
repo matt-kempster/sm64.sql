@@ -55,6 +55,7 @@ def test_parse_repo_finds_entities(everything):
     assert len(everything.sm64_areas) > 0
     assert len(everything.sm64_mario_animations) > 0
     assert len(everything.sm64_sounds) > 0
+    assert len(everything.sm64_camera_triggers) > 0
 
 
 def test_sounds_have_banks(everything):
@@ -692,6 +693,68 @@ def test_mario_transition_conditions_over_real_data(conn):
     assert (
         cur.execute(
             "SELECT COUNT(*) FROM mario_action_call WHERE condition LIKE '!(%'"
+        ).fetchone()[0]
+        > 0
+    )
+
+
+def test_camera_triggers_over_real_data(everything):
+    triggers = everything.sm64_camera_triggers
+    # The decomp ships ~119 trigger rows across the wired tables.
+    assert len(triggers) > 100
+
+    # Every trigger has a numeric box and an event function name.
+    assert all(t.event and t.event[0].isalpha() for t in triggers)
+    assert all(
+        isinstance(t.center_x, int) and isinstance(t.bounds_x, int) for t in triggers
+    )
+
+    # A known trigger, verified against the source: the BOB tower box.
+    tower = [t for t in triggers if t.event == "cam_bob_tower"]
+    assert tower and tower[0].camera_table == "sCamBOB"
+    assert (tower[0].center_x, tower[0].center_z) == (2468, -4608)
+
+    # Some triggers are whole-level defaults (area -1), most are area-specific.
+    assert any(t.area == -1 for t in triggers)
+    assert any(t.area >= 0 for t in triggers)
+
+
+def test_camera_triggers_wire_to_known_levels(conn):
+    cur = conn.cursor()
+
+    # Wired tables resolve to real level folders -- no dangling level FK among
+    # the rows that have one.
+    dangling = cur.execute(
+        "SELECT COUNT(*) FROM camera_trigger ct "
+        "LEFT JOIN level l ON ct.level = l.folder "
+        "WHERE ct.level IS NOT NULL AND l.folder IS NULL"
+    ).fetchone()[0]
+    assert dangling == 0
+
+    # Exactly the 9 wired levels carry camera zones (bbh, castle_inside, ccm,
+    # cotmc, hmc, rr, sl, ssl, thi).
+    wired = cur.execute(
+        "SELECT COUNT(DISTINCT level) FROM camera_trigger WHERE level IS NOT NULL"
+    ).fetchone()[0]
+    assert wired == 9
+
+
+def test_camera_trigger_unused_table_is_surfaced(conn):
+    # Completeness audit: sCamBOB is defined in camera.c but no level wires it in,
+    # so it is dead code -- captured with level NULL and surfaced, not dropped.
+    cur = conn.cursor()
+    unused = {
+        row[0]
+        for row in cur.execute(
+            "SELECT camera_table FROM camera_trigger_unused"
+        ).fetchall()
+    }
+    assert "sCamBOB" in unused
+    # Its rows really do have a NULL level (the FK is simply unenforced there).
+    assert (
+        cur.execute(
+            "SELECT COUNT(*) FROM camera_trigger "
+            "WHERE camera_table = 'sCamBOB' AND level IS NULL"
         ).fetchone()[0]
         > 0
     )
