@@ -70,6 +70,8 @@
   const escapeHtml = (s) =>
     String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   const hexb = (n) => "0x" + n.toString(16).toUpperCase().padStart(2, "0");
+  // chip-absolute address (the EEPROM is 0x000..0x200, so pad to 3 hex digits)
+  const addr = (n) => "0x" + n.toString(16).toUpperCase().padStart(3, "0");
   const sqlStr = (s) => String(s).replace(/'/g, "''");
 
   // --- tiny SVG helper -----------------------------------------------------
@@ -161,12 +163,15 @@
   }
 
   // --- build the hierarchy -------------------------------------------------
-  // Each node: { label, sub, kind, colorKey, size, offset, doc, owner, query,
-  //              children:[]|null }. size is used only relative to siblings, so
-  //              bits (32 of them) just use 1 apiece.
-  function buildStruct(name, label, sub, offset) {
+  // Each node: { label, sub, kind, colorKey, size, offset, abs, doc, owner,
+  //              query, children:[]|null }. size is used only relative to
+  //              siblings, so bits just use 1 apiece. `abs` is the node's
+  //              chip-absolute byte offset (offset is owner-struct-relative);
+  //              the ruler needs the absolute one.
+  function buildStruct(name, label, sub, offset, abs) {
     const st = data.structs[name];
     const fields = data.fieldsBy[name] || [];
+    const base = abs || 0;
     return {
       label: label || name,
       sub: sub || (label && label !== name ? name : null),
@@ -174,13 +179,14 @@
       colorKey: "struct",
       size: st ? st.size : fields.reduce((a, f) => a + f.size, 0),
       offset: offset || 0,
+      abs: base,
       doc: st ? st.doc : null,
       owner: name,
-      children: fields.map((f) => buildField(f, name)),
+      children: fields.map((f) => buildField(f, name, base + f.offset)),
     };
   }
 
-  function buildField(f, owner) {
+  function buildField(f, owner, abs) {
     const colorKey = f.isStruct ? "struct" : f.name === "filler" ? "padding" : f.type;
     const base = {
       label: f.name,
@@ -189,6 +195,7 @@
       colorKey,
       size: f.size,
       offset: f.offset,
+      abs,
       doc: f.doc,
       owner,
       query: `-- ${owner}.${f.name}\nSELECT * FROM save_field WHERE struct_name = '${sqlStr(
@@ -197,20 +204,20 @@
       children: null,
     };
     if (data.flagsBy[f.name]) {
-      base.children = buildBits(data.flagsBy[f.name]);
+      base.children = buildBits(data.flagsBy[f.name], abs);
     } else if (f.isStruct && f.count === 1) {
-      base.children = buildStruct(f.type).children; // inline the sub-struct's fields
+      base.children = buildStruct(f.type, undefined, undefined, 0, abs).children; // inline sub-struct fields
     } else if (f.isStruct && f.count > 1) {
-      base.children = instances(f);
+      base.children = instances(f, abs);
     } else if (f.count > 1) {
-      base.children = elements(f, owner);
+      base.children = elements(f, owner, abs);
     }
     return base;
   }
 
   // Struct array -> one struct per element. files[4][2] reads as 4 save slots
   // (A-D) each with a primary + backup copy; menuData[2] as two copies.
-  function instances(f) {
+  function instances(f, parentAbs) {
     const dims = f.dims ? f.dims.split(",").map(Number) : [f.count];
     const copies = dims.length > 1 ? dims[1] : dims[0];
     const isFiles = f.name === "files";
@@ -220,7 +227,7 @@
       const copy = i % copies;
       const label = isFiles ? `File ${"ABCD"[slot] || slot}` : "Menu";
       const sub = copies === 2 ? (copy === 0 ? "primary" : "backup") : `[${i}]`;
-      const node = buildStruct(f.type, label, sub, f.offset + i * f.elemSize);
+      const node = buildStruct(f.type, label, sub, f.offset + i * f.elemSize, parentAbs + i * f.elemSize);
       if (copies === 2) {
         node.copy = copy === 0 ? "primary" : "backup";
         node.doc =
@@ -238,12 +245,13 @@
   // indexed by courseNum-1, so element i is the (i+1)-th course (courses[0] is
   // COURSE_NONE); label each with that course's name. A courseStars byte further
   // drills into its 8 star/cannon bits.
-  function elements(f, owner) {
+  function elements(f, owner, parentAbs) {
     const isStars = f.name === "courseStars";
     const isCoins = f.name === "courseCoinScores";
     const out = [];
     for (let i = 0; i < f.count; i++) {
       const course = isStars || isCoins ? data.courses[i + 1] : null;
+      const abs = parentAbs + i * f.elemSize;
       out.push({
         label: course ? course.display_name : `[${i}]`,
         sub: isCoins ? "max coins" : isStars ? "star flags" : `${f.type} [${i}]`,
@@ -251,12 +259,13 @@
         colorKey: f.type,
         size: f.elemSize,
         offset: f.offset + i * f.elemSize,
+        abs,
         doc: course ? `${owner}.${f.name}[${i}] — ${course.course_name}` : null,
         owner,
         query: `-- ${owner}.${f.name}[${i}]${course ? ` (${course.course_name})` : ""}\nSELECT * FROM save_field WHERE struct_name = '${sqlStr(
           owner
         )}' AND field_name = '${sqlStr(f.name)}';`,
-        children: isStars ? buildStarBits(i) : null,
+        children: isStars ? buildStarBits(i, abs) : null,
       });
     }
     return out;
@@ -267,7 +276,7 @@
   // decomp's "byte following each course" quirk, actually unlocks the *previous*
   // course's cannon (cannon of course c is courseStars[c] bit 7, but stars of
   // course c are courseStars[c-1]).
-  function buildStarBits(byteIndex) {
+  function buildStarBits(byteIndex, abs) {
     const starCourse = data.courses[byteIndex + 1]; // whose stars bits 0-6 are
     const cannonCourse = data.courses[byteIndex]; // whose cannon bit 7 holds
     const named = (starCourse && data.starsBy[starCourse.course_name]) || {};
@@ -301,13 +310,13 @@
             `"the byte following each course"${cannonReal ? ` (here: ${cannonCourse.display_name})` : ""}.`,
         };
       }
-      bits.push({ ...node, kind: "bit", size: 1, offset: b, owner: null, query: null, children: null });
+      bits.push({ ...node, kind: "bit", size: 1, offset: b, abs, owner: null, query: null, children: null });
     }
     return bits;
   }
 
   // The flags u32 -> 32 bit tiles; bits with no SAVE_FLAG are the gaps.
-  function buildBits(flags) {
+  function buildBits(flags, abs) {
     const byBit = {};
     flags.forEach((fl) => (byBit[fl.bit] = fl));
     const out = [];
@@ -322,6 +331,7 @@
               colorKey: flagCat(fl.name),
               size: 1,
               offset: b,
+              abs,
               doc: `mask 0x${fl.mask.toString(16).toUpperCase().padStart(8, "0")} · ${flagCat(
                 fl.name
               )}`,
@@ -338,6 +348,7 @@
               colorKey: "unused",
               size: 1,
               offset: b,
+              abs,
               doc: "no flag defined (unused bit)",
               owner: null,
               query: null,
@@ -364,8 +375,8 @@
     const head = node.sub ? `${node.label || "—"} <span class="muted">${escapeHtml(node.sub)}</span>` : node.label || "—";
     const where =
       node.kind === "bit" || node.kind === "unused"
-        ? `bit ${node.offset}`
-        : `@ ${hexb(node.offset)} · ${node.size} byte${node.size === 1 ? "" : "s"}`;
+        ? `bit ${node.offset} · in the byte @ ${addr(node.abs)}`
+        : `@ ${addr(node.abs)} · ${node.size} byte${node.size === 1 ? "" : "s"}`;
     const action = node.children
       ? "click to drill in ↓"
       : node.query
@@ -421,7 +432,10 @@
     const c = node.children || [];
     if (node === root) return `${node.label} · ${node.size} bytes (0x200)`;
     const kid = c[0] ? c[0].kind : null;
-    if (kid === "bit") return `${node.label} · 32 bits @ ${hexb(node.offset)}`;
+    if (kid === "bit")
+      return `${node.label} · ${c.length} bits inside ${node.size} byte${
+        node.size === 1 ? "" : "s"
+      } @ ${addr(node.abs)}`;
     if (kid === "element") return `${node.label}[${c.length}] · ${c.length} × ${c[0].sub}`;
     if (kid === "struct") return `${node.label} · ${c.length} × ${node.sub}`;
     // struct fields (a file/menu instance, or an inline sub-struct like signature):
@@ -429,6 +443,50 @@
     const owner = c[0] ? c[0].owner : node.owner;
     const head = node.kind === "struct" && node.sub ? `${node.label} ${node.sub}` : node.label;
     return `${head} · ${owner} fields`;
+  }
+
+  // --- scale ruler ---------------------------------------------------------
+  // A persistent map of the whole 512-byte chip with one track per drilled
+  // level, each showing that level's slice of the EEPROM. Absolute scale is
+  // always on screen, so a 4-byte word reads as obviously tinier than a 56-byte
+  // file, and a bit-level bar shows its 32 tiles all live in just a few bytes.
+  // Returns the y at which the drill bars should start.
+  function drawRuler(svg, innerW) {
+    const X = (off) => PADX + (innerW * off) / root.size;
+    const TOP = 10, SEGH = 9, ROW = 26;
+    txt(svg, PADX, TOP + 9, "Where you are in the 512-byte EEPROM", "save-rulertitle");
+    let y = TOP + 18;
+
+    // the whole chip, with ticks every 0x80.
+    mk("rect", { x: PADX, y, width: innerW, height: SEGH, rx: 2, fill: "#e7eaf2" }, svg);
+    [0, 0x80, 0x100, 0x180, 0x200].forEach((t, i) => {
+      const x = X(t);
+      mk("line", { x1: x, y1: y, x2: x, y2: y + SEGH, stroke: "#b9c0d0", "stroke-width": 1 }, svg);
+      const tk = txt(svg, x, y + SEGH + 9, addr(t), "save-rulertick");
+      tk.setAttribute("text-anchor", i === 0 ? "start" : i === 4 ? "end" : "middle");
+    });
+    y += ROW;
+
+    // one track per drilled level: its slice highlighted on the same scale, so
+    // each deeper level is visibly a sub-range (and a fraction) of the one above.
+    path.slice(1).forEach((n) => {
+      const a = n.abs || 0;
+      const x0 = X(a);
+      const w = Math.max(2.5, X(a + n.size) - x0);
+      const head = n.kind === "struct" && n.sub ? `${n.label} ${n.sub}` : n.label;
+      const pct = ((100 * n.size) / root.size).toFixed(n.size < 5 ? 1 : 0);
+      txt(
+        svg, PADX, y + 9,
+        `${head} · ${n.size} B (${pct}%) · ${addr(a)}–${addr(a + n.size)}`,
+        "save-rulerlab"
+      );
+      mk("rect", { x: PADX, y: y + 13, width: innerW, height: SEGH, rx: 2, fill: "#f1f3f8" }, svg);
+      mk("rect", { x: x0, y: y + 13, width: w, height: SEGH, rx: 2, fill: colorOf(n.colorKey) }, svg);
+      y += ROW;
+    });
+
+    mk("line", { x1: PADX, y1: y + 1, x2: PADX + innerW, y2: y + 1, stroke: "#e6e8f0", "stroke-width": 1 }, svg);
+    return y + 12;
   }
 
   // --- render --------------------------------------------------------------
@@ -451,10 +509,11 @@
     const innerW = W - 2 * PADX;
 
     buildBreadcrumb();
+    const rulerBottom = drawRuler(svg, innerW);
 
     // 1) lay out every bar (geometry only) so connectors can be drawn behind.
     const bars = [];
-    let y = PADTOP;
+    let y = rulerBottom;
     for (let k = 0; k < path.length; k++) {
       const node = path[k];
       const kids = node.children || [];

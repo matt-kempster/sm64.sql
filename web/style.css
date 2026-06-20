@@ -461,6 +461,11 @@ tbody tr:hover { background: #fbfaf4; }
 #save-svg { display: block; }
 
 .save-bandlabel { fill: var(--muted); font: 600 11px var(--mono); }
+
+/* the persistent 512-byte scale ruler at the top of the stage */
+.save-rulertitle { fill: var(--ink); font: 700 11px var(--sans); }
+.save-rulertick { fill: var(--muted); font: 500 9px var(--mono); }
+.save-rulerlab { fill: var(--ink); font: 600 10px var(--mono); }
 .save-seg { cursor: default; }
 .save-seg.link { cursor: pointer; }
 .save-seg rect { stroke: var(--paper); stroke-width: 1; transition: stroke 0.1s; }
