@@ -9,7 +9,7 @@ reads those source files and writes the equivalent rows into a SQLite database,
 so questions like "which objects appear only in act 1?", "what music plays in
 each course?", or "where does each painting warp to?" become one-line queries.
 
-It currently populates 22 tables (plus 10 derived views) spanning placed
+It currently populates 23 tables (plus 11 derived views) spanning placed
 objects, models and per-level model loads, behaviors and their command scripts
 and native C code, levels/courses/areas, warps, dialog, music, animations,
 sounds, the in-game course and star names, and the named constants behavior
@@ -79,6 +79,7 @@ Pages on every push to `master`. See [`web/README.md`](web/README.md).
 | `behavior` | `include/behavior_data.h` + `data/behavior_data.c` | `behavior_name`, `obj_list` |
 | `behavior_command` | `data/behavior_data.c` | `behavior_name`, `seq`, `command`, `args`, `args_json` |
 | `behavior_call` | `src/game/behaviors/*.inc.c` | `behavior_name`, `function`, `seq`, `call`, `args`, `args_json`, `file`, `line` |
+| `behavior_data_spawn` | `src/game/behaviors/*.inc.c` | `behavior_name`, `spawned_behavior`, `spawned_model`, `source`, `function`, `file`, `line` |
 | `warp` | `levels/*/script.c` | `level`, `area` (0 = level-global), `node_id`, `dest_level`, `dest_area`, `dest_node`, `flags`, `is_painting` |
 | `instant_warp` | `levels/*/script.c` | `level`, `area`, `warp_index`, `dest_area`, `displace_x/y/z` |
 | `area` | `levels/*/script.c` | `level`, `area`, `geo`, `terrain_type`, `background_music`, `dialog` |
@@ -142,6 +143,17 @@ so the target column is never null. A call that passes its target as a runtime
 value — a signpost reading its dialog id from `oBhvParams2ndByte`, a spawn of a
 behavior held in a variable — stays in `behavior_call` (query it directly) but is
 not surfaced as a clean edge here.
+
+Reachability follows two C idioms a plain call graph cannot: a behavior's loop
+dispatching per-frame logic through an action-function table
+(`cur_obj_call_action_function(sFooActions)`), and a spawn whose behavior is read
+from a static table or forwarded through a helper parameter. The latter — e.g.
+the exclamation box spawning its `sExclamationBoxContents` table — are resolved
+interprocedurally into the **`behavior_data_spawn`** table (with the model paired
+from the same row). The **`behavior_all_spawns`** view then unions all three
+sources — `behavior_spawn` (bytecode), `behavior_calls_spawn` (literal C), and
+`behavior_data_spawn` (data-table) — tagged by `origin`, for the complete spawn
+graph.
 
 Completeness is auditable rather than assumed: nothing is filtered at parse time,
 so `behavior_call_unclassified` lists every captured call a relation view does
@@ -266,11 +278,11 @@ FROM behavior_native GROUP BY behavior_name;
 -- Which behaviors load a given collision mesh / animation set?
 SELECT behavior_name, symbol FROM behavior_resource WHERE kind = 'collision';
 
--- The *full* spawn graph, including runtime spawns that live only in C and have
--- no SPAWN_* opcode (e.g. a Bob-omb's explosion). Compare to behavior_spawn.
-SELECT behavior_name AS parent, spawned_behavior AS child, function, file, line
-FROM behavior_calls_spawn
-WHERE spawned_behavior IS NOT NULL ORDER BY parent;
+-- The *complete* spawn graph: bytecode, literal-C, and data-table spawns, each
+-- tagged by origin. The 'c'/'data' edges live only in code (e.g. a Bob-omb's
+-- explosion, or the exclamation box's contents) -- invisible to the bytecode.
+SELECT behavior_name AS parent, spawned_behavior AS child, spawned_model, origin
+FROM behavior_all_spawns ORDER BY parent;
 
 -- Which objects make a given sound, and from which C function?
 SELECT behavior_name, function, sound FROM behavior_calls_sound
@@ -319,7 +331,7 @@ mypy                   # type-check
 
 ## Status & limitations
 
-22 tables (plus 10 views) are populated from a full current `n64decomp/sm64`
+23 tables (plus 11 views) are populated from a full current `n64decomp/sm64`
 checkout: placed objects, macro objects and special objects; models and
 per-level model loads, behaviors and their command scripts and native C code,
 macro/special presets; levels, courses and areas; warps and instant warps;

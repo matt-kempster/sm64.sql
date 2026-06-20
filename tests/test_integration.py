@@ -334,6 +334,13 @@ def test_behavior_call_backbone(everything):
 def test_behavior_call_relations_over_real_data(conn):
     cur = conn.cursor()
 
+    # Every resolved relation target must join to its parent table (no danglers).
+    def dangling(view, col, parent, key):
+        return cur.execute(
+            f"SELECT COUNT(*) FROM {view} v LEFT JOIN {parent} p "
+            f"ON v.{col} = p.{key} WHERE v.{col} IS NOT NULL AND p.{key} IS NULL"
+        ).fetchone()[0]
+
     # The headline: a spawn that exists ONLY in C, two call-levels below the
     # behavior script. bhvBobomb's act_explode does spawn_object(bhvExplosion);
     # no SPAWN_* opcode names it, so behavior_spawn cannot see it -- but the
@@ -370,12 +377,33 @@ def test_behavior_call_relations_over_real_data(conn):
     }
     assert "bhv1UpWalking" in monty
 
-    # Every resolved relation target joins to its parent table -- no danglers.
-    def dangling(view, col, parent, key):
-        return cur.execute(
-            f"SELECT COUNT(*) FROM {view} v LEFT JOIN {parent} p "
-            f"ON v.{col} = p.{key} WHERE v.{col} IS NOT NULL AND p.{key} IS NULL"
-        ).fetchone()[0]
+    # Data-table spawns resolved interprocedurally: the exclamation box spawns
+    # its whole contents table (a runtime contents->behavior lookup), including
+    # the 1-Up that runs away and the caps. Every target/model still joins.
+    box = {
+        (row[0], row[1])
+        for row in cur.execute(
+            "SELECT spawned_behavior, spawned_model FROM behavior_data_spawn "
+            "WHERE behavior_name = 'bhvExclamationBox'"
+        ).fetchall()
+    }
+    assert ("bhv1UpRunningAway", "MODEL_1UP") in box
+    assert ("bhvWingCap", "MODEL_MARIOS_WING_CAP") in box
+    assert (
+        dangling("behavior_data_spawn", "spawned_behavior", "behavior", "behavior_name")
+        == 0
+    )
+    assert dangling("behavior_data_spawn", "spawned_model", "model", "model_name") == 0
+
+    # behavior_all_spawns unions the three sources; every edge it reports for a
+    # behavior carries a known origin and resolves.
+    origins = {
+        row[0]
+        for row in cur.execute(
+            "SELECT DISTINCT origin FROM behavior_all_spawns"
+        ).fetchall()
+    }
+    assert origins == {"script", "c", "data"}
 
     assert (
         dangling(

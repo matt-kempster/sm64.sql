@@ -62,7 +62,7 @@ def test_reachability_attributes_helpers_to_behavior(tmp_path: Path):
         "}\n"
     )
     roots: Dict[str, List[str]] = {"bhv_thing_loop": ["bhvThing"]}
-    rows = parse_behavior_calls(tmp_path, roots)
+    rows = parse_behavior_calls(tmp_path, roots).calls
 
     # Every call is attributed to bhvThing, including the spawn made two levels
     # deep inside the helper the loop calls.
@@ -87,7 +87,7 @@ def test_shared_helper_attributed_to_every_caller(tmp_path: Path):
         "void bhv_b_loop(void) { make_respawner(); }\n"
     )
     roots = {"bhv_a_loop": ["bhvA"], "bhv_b_loop": ["bhvB"]}
-    rows = parse_behavior_calls(tmp_path, roots)
+    rows = parse_behavior_calls(tmp_path, roots).calls
     # The shared helper's spawn is attributed to both behaviors that reach it.
     respawner = {r.behavior_name for r in rows if r.call == "spawn_object"}
     assert respawner == {"bhvA", "bhvB"}
@@ -107,7 +107,7 @@ def test_external_root_outside_behaviors_dir(tmp_path: Path):
         "}\n"
     )
     roots = {"bhv_act_selector_loop": ["bhvActSelector"]}
-    rows = parse_behavior_calls(tmp_path, roots)
+    rows = parse_behavior_calls(tmp_path, roots).calls
     # The external root's direct call is captured and attributed.
     assert any(
         r.behavior_name == "bhvActSelector"
@@ -134,7 +134,7 @@ def test_action_function_table_is_followed(tmp_path: Path):
         "    cur_obj_call_action_function(sBossActions);\n"
         "}\n"
     )
-    rows = parse_behavior_calls(tmp_path, {"bhv_boss_loop": ["bhvBoss"]})
+    rows = parse_behavior_calls(tmp_path, {"bhv_boss_loop": ["bhvBoss"]}).calls
     reached = {r.function for r in rows}
     # Both action functions are reached even though nothing calls them directly.
     assert {"boss_act_attack", "boss_act_idle"} <= reached
@@ -144,6 +144,37 @@ def test_action_function_table_is_followed(tmp_path: Path):
     assert spawns[0].behavior_name == "bhvBoss"
 
 
+def test_data_table_and_forwarded_spawns_are_resolved(tmp_path: Path):
+    # Two runtime-target spawns the literal-only view cannot see:
+    #  - a wrapper forwards a literal behavior parameter (case C)
+    #  - a helper spawns from a static {model, behavior} table passed in (case B)
+    _behaviors_dir(tmp_path).joinpath("box.inc.c").write_text(
+        "struct Contents { u8 bp; s16 model; const BehaviorScript *behavior; };\n"
+        "struct Contents sBoxContents[] = {\n"
+        "    { 0, MODEL_STAR, bhvSpawnedStar },\n"
+        "    { 1, MODEL_1UP, bhv1UpWalking },\n"
+        "};\n"
+        "void spawn_one(s16 model, const BehaviorScript *behavior) {\n"
+        "    spawn_object(o, model, behavior);\n"
+        "}\n"
+        "void box_spawn_contents(struct Contents *contents) {\n"
+        "    spawn_object(o, contents->model, contents->behavior);\n"
+        "}\n"
+        "void bhv_box_loop(void) {\n"
+        "    spawn_one(MODEL_COIN, bhvCoin);\n"
+        "    box_spawn_contents(sBoxContents);\n"
+        "}\n"
+    )
+    spawns = parse_behavior_calls(tmp_path, {"bhv_box_loop": ["bhvBox"]}).data_spawns
+    edges = {(s.behavior_name, s.spawned_behavior) for s in spawns}
+    assert ("bhvBox", "bhvCoin") in edges  # forwarded literal (case C)
+    assert ("bhvBox", "bhvSpawnedStar") in edges  # from the table (case B)
+    assert ("bhvBox", "bhv1UpWalking") in edges  # from the table (case B)
+    # The model paired in the same table row comes through.
+    star = next(s for s in spawns if s.spawned_behavior == "bhvSpawnedStar")
+    assert star.spawned_model == "MODEL_STAR"
+
+
 def test_unparsed_root_is_skipped(tmp_path: Path):
     # A CALL_NATIVE root with no definition anywhere (e.g. a macro template, or
     # an engine helper used directly as a loop) simply contributes no rows.
@@ -151,5 +182,5 @@ def test_unparsed_root_is_skipped(tmp_path: Path):
         "void bhv_thing_loop(void) { cur_obj_play_sound_2(SOUND_GENERAL_COIN); }\n"
     )
     roots = {"bhv_thing_loop": ["bhvThing"], "func": ["bhvBogus"]}
-    rows = parse_behavior_calls(tmp_path, roots)
+    rows = parse_behavior_calls(tmp_path, roots).calls
     assert {r.behavior_name for r in rows} == {"bhvThing"}

@@ -2,7 +2,7 @@ import sqlite3
 
 from sm64_sql.area import SM64Area
 from sm64_sql.behavior import SM64Behavior
-from sm64_sql.behavior_call import SM64BehaviorCall
+from sm64_sql.behavior_call import SM64BehaviorCall, SM64BehaviorDataSpawn
 from sm64_sql.behavior_command import SM64BehaviorCommand
 from sm64_sql.constant import SM64Constant
 from sm64_sql.course import SM64Course
@@ -257,6 +257,17 @@ def _everything():
                 line=121,
             ),
         ],
+        sm64_behavior_data_spawns=[
+            SM64BehaviorDataSpawn(
+                behavior_name="bhvGoomba",
+                spawned_behavior="bhvGoomba",
+                spawned_model="MODEL_GOOMBA",
+                source="sFakeContents",
+                function="goomba_spawn_contents",
+                file="src/game/behaviors/goomba.inc.c",
+                line=130,
+            )
+        ],
     )
 
 
@@ -390,6 +401,21 @@ def test_write_to_db_round_trip():
     # behavior_calls_sound pulls the SOUND_* argument out of the play-sound call.
     c_sound = cur.execute("SELECT sound FROM behavior_calls_sound").fetchone()
     assert c_sound == ("SOUND_OBJ_GOOMBA_WALK",)
+
+    # behavior_data_spawn holds a runtime-resolved spawn, and behavior_all_spawns
+    # unions the three spawn sources, tagging each with its origin.
+    data_spawn = cur.execute(
+        "SELECT behavior_name, spawned_behavior, spawned_model FROM behavior_data_spawn"
+    ).fetchone()
+    assert data_spawn == ("bhvGoomba", "bhvGoomba", "MODEL_GOOMBA")
+    origins = {
+        row[0]
+        for row in cur.execute(
+            "SELECT DISTINCT origin FROM behavior_all_spawns "
+            "WHERE behavior_name = 'bhvGoomba'"
+        ).fetchall()
+    }
+    assert origins == {"script", "c", "data"}
 
     # The door left open: find a command referencing a symbol in ANY arg slot.
     any_slot = cur.execute(

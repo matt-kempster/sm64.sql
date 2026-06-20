@@ -45,8 +45,9 @@ Actions**.
   `type ▸ object ▸ level`
 - `graph.js` — the Graph tab: a d3 force-directed object relationship graph
   (nodes = behaviors, edges = `spawns` / `morphs into` / `seeks` from the
-  `behavior_spawn` and `behavior_calls_*` views), with a per-object dossier and
-  a toggle to highlight the spawns that exist only in C
+  `behavior_all_spawns` and `behavior_calls_*` views), with zoom/pan, a
+  per-object dossier, and a toggle to highlight the spawns that exist only in
+  code (not the bytecode)
 - `examples.js` — the curated example queries shown in the sidebar
 - `style.css` — styling
 - `sm64.db` — the generated database (gitignored)

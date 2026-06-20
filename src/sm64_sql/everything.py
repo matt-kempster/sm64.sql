@@ -5,7 +5,11 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from sm64_sql.area import SM64Area, parse_areas
 from sm64_sql.behavior import SM64Behavior, parse_behaviors
-from sm64_sql.behavior_call import SM64BehaviorCall, parse_behavior_calls
+from sm64_sql.behavior_call import (
+    SM64BehaviorCall,
+    SM64BehaviorDataSpawn,
+    parse_behavior_calls,
+)
 from sm64_sql.behavior_command import SM64BehaviorCommand, parse_behavior_commands
 from sm64_sql.constant import SM64Constant, parse_constants
 from sm64_sql.course import SM64Course, parse_courses
@@ -54,6 +58,7 @@ class SM64Everything:
     sm64_constants: List[SM64Constant]
     sm64_behavior_commands: List[SM64BehaviorCommand]
     sm64_behavior_calls: List[SM64BehaviorCall]
+    sm64_behavior_data_spawns: List[SM64BehaviorDataSpawn]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -83,6 +88,7 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("constant", SM64Constant, "sm64_constants"),
     ("behavior_command", SM64BehaviorCommand, "sm64_behavior_commands"),
     ("behavior_call", SM64BehaviorCall, "sm64_behavior_calls"),
+    ("behavior_data_spawn", SM64BehaviorDataSpawn, "sm64_behavior_data_spawns"),
 ]
 
 
@@ -207,6 +213,13 @@ TABLE_KEYS: Dict[str, TableKeys] = {
     # ---- behavior native-code backbone ----
     "behavior_call": TableKeys(
         foreign_keys=(_fk("behavior_name", "behavior", "behavior_name"),)
+    ),
+    "behavior_data_spawn": TableKeys(
+        foreign_keys=(
+            _fk("behavior_name", "behavior", "behavior_name"),
+            _fk("spawned_behavior", "behavior", "behavior_name"),
+            _fk("spawned_model", "model", "model_name"),
+        )
     ),
 }
 
@@ -398,6 +411,23 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         )
         GROUP BY call
         ORDER BY n DESC, call
+        """,
+    ),
+    # The complete spawn graph: the bytecode spawns (behavior_spawn), the literal
+    # C spawns (behavior_calls_spawn), and the data-table / forwarded-literal
+    # spawns the other two cannot resolve (behavior_data_spawn), tagged by origin.
+    (
+        "behavior_all_spawns",
+        """
+        CREATE VIEW behavior_all_spawns AS
+        SELECT behavior_name, spawned_behavior, spawned_model, 'script' AS origin
+        FROM behavior_spawn WHERE spawned_behavior IS NOT NULL
+        UNION ALL
+        SELECT behavior_name, spawned_behavior, spawned_model, 'c'
+        FROM behavior_calls_spawn
+        UNION ALL
+        SELECT behavior_name, spawned_behavior, spawned_model, 'data'
+        FROM behavior_data_spawn
         """,
     ),
 ]
@@ -609,7 +639,9 @@ def parse_repo(repo: Path) -> SM64Everything:
             root_to_behaviors.setdefault(command.args, [])
             if command.behavior_name not in root_to_behaviors[command.args]:
                 root_to_behaviors[command.args].append(command.behavior_name)
-    sm64_behavior_calls = parse_behavior_calls(repo, root_to_behaviors)
+    parsed_behavior_code = parse_behavior_calls(repo, root_to_behaviors)
+    sm64_behavior_calls = parsed_behavior_code.calls
+    sm64_behavior_data_spawns = parsed_behavior_code.data_spawns
     sm64_mario_animations = parse_mario_animations(
         repo / "include" / "mario_animation_ids.h"
     )
@@ -648,4 +680,5 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_constants=sm64_constants,
         sm64_behavior_commands=sm64_behavior_commands,
         sm64_behavior_calls=sm64_behavior_calls,
+        sm64_behavior_data_spawns=sm64_behavior_data_spawns,
     )

@@ -36,19 +36,13 @@ ORDER BY child_only;`,
   },
   {
     title: "Spawns hidden in the C code",
-    sql: `-- The native-code spawn graph (behavior_calls_spawn, mined from the C in
--- src/game/behaviors/) sees runtime spawns the bytecode never names. These are
--- spawns present in C but ABSENT from the bytecode-derived behavior_spawn --
--- e.g. a Bob-omb's explosion, spawned deep inside its act function.
-SELECT c.behavior_name AS parent, c.spawned_behavior AS child,
-       c.function, c.file, c.line
-FROM behavior_calls_spawn c
-WHERE c.spawned_behavior IS NOT NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM behavior_spawn s
-    WHERE s.behavior_name = c.behavior_name
-      AND s.spawned_behavior = c.spawned_behavior
-  )
+    sql: `-- behavior_all_spawns unions every spawn source: bytecode (script),
+-- literal C calls (c), and data-table / forwarded spawns (data). The c/data
+-- edges live ONLY in the code, invisible to the bytecode -- e.g. a Bob-omb's
+-- explosion, or the whole exclamation-box contents table.
+SELECT behavior_name AS parent, spawned_behavior AS child, spawned_model, origin
+FROM behavior_all_spawns
+WHERE origin IN ('c', 'data')
 ORDER BY parent;`,
   },
   {

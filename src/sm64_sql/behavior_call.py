@@ -57,6 +57,27 @@ BEHAVIOR_SUBDIR = ("src", "game", "behaviors")
 _DISPATCHERS = {"cur_obj_call_action_function"}
 _FN_PTR_TABLE = re.compile(r"\(\s*\*\s*(\w+)\s*\[\s*\]\s*\)\s*\(")
 
+# The object-spawning helpers (kept in sync with the behavior_calls_spawn view in
+# everything.py). When the behavior argument to one of these is a literal it is
+# resolved at the call site by that view; when it is a runtime value (a struct
+# field, a table index, a forwarded parameter) it is resolved interprocedurally
+# here -- see _resolve_data_spawns.
+_SPAWN_FAMILY = frozenset(
+    {
+        "spawn_object",
+        "spawn_object_relative",
+        "spawn_object_relative_with_scale",
+        "spawn_object_abs_with_rot",
+        "spawn_object_at_origin",
+        "spawn_object_rel_with_rot",
+        "spawn_object_with_scale",
+        "spawn_child_obj_relative",
+    }
+)
+_BEHAVIOR_ID = re.compile(r"bhv[A-Z0-9]\w*")
+_MODEL_ID = re.compile(r"MODEL_[A-Za-z0-9_]+")
+_BASE_ID = re.compile(r"[A-Za-z_]\w*")
+
 
 @dataclass
 class SM64BehaviorCall:
@@ -82,6 +103,28 @@ class _Func:
     name: str
     file: str  # repo-relative
     calls: List[_Call] = field(default_factory=list)
+    params: List[Optional[str]] = field(default_factory=list)
+
+
+@dataclass
+class SM64BehaviorDataSpawn:
+    """A spawn whose target is a runtime value, resolved from a static table or
+    a forwarded literal (what the literal-only behavior_calls_spawn view cannot
+    see). e.g. the exclamation box spawning its contents table."""
+
+    behavior_name: str  # owning bhv* (joins behavior)
+    spawned_behavior: str  # the spawned bhv* (joins behavior)
+    spawned_model: Optional[str]  # MODEL_* if known (joins model), else NULL
+    source: str  # the static table / argument it was resolved through
+    function: str  # the C function the spawn sits in
+    file: str
+    line: int
+
+
+@dataclass
+class ParsedBehaviorCode:
+    calls: List[SM64BehaviorCall]
+    data_spawns: List[SM64BehaviorDataSpawn]
 
 
 _parser: Optional[Parser] = None
@@ -126,6 +169,27 @@ def _function_name(node) -> Optional[str]:
     return declarator.text.decode() if declarator is not None else None
 
 
+def _function_params(node) -> List[Optional[str]]:
+    """Return a function_definition's parameter names (None for an unnamed one).
+
+    Order is preserved, so a behavior argument written as a parameter can be
+    mapped to its index and looked up in the caller's arguments.
+    """
+    declarator = node.child_by_field_name("declarator")
+    fdecl = _find_descendant(declarator, "function_declarator") if declarator else None
+    plist = fdecl.child_by_field_name("parameters") if fdecl is not None else None
+    if plist is None:
+        return []
+    params: List[Optional[str]] = []
+    for child in plist.named_children:
+        if child.type != "parameter_declaration":
+            continue
+        pdecl = child.child_by_field_name("declarator")
+        ident = _find_descendant(pdecl, "identifier") if pdecl is not None else None
+        params.append(ident.text.decode() if ident is not None else None)
+    return params
+
+
 def _collect_calls(body) -> List[_Call]:
     """Every ``call_expression`` in a function body, in source (pre-order)."""
     calls: List[_Call] = []
@@ -158,7 +222,9 @@ def _functions_from_tree(tree, rel: str) -> List[_Func]:
             name = _function_name(node)
             body = node.child_by_field_name("body")
             if name is not None and body is not None:
-                funcs.append(_Func(name, rel, _collect_calls(body)))
+                funcs.append(
+                    _Func(name, rel, _collect_calls(body), _function_params(node))
+                )
             return  # C has no nested function definitions
         for child in node.children:
             visit(child)
@@ -198,6 +264,51 @@ def _action_tables_from_tree(tree) -> Dict[str, List[str]]:
                 if fns:
                     tables[match.group(1)] = fns
             return  # a declaration holds no nested action tables
+        for child in node.children:
+            visit(child)
+
+    visit(tree.root_node)
+    return tables
+
+
+def _behavior_table_rows(init_list) -> List["tuple"]:
+    """The (model, behavior) pairs an initializer list names.
+
+    Handles struct-row arrays -- ``{ ..., MODEL_X, bhvY }`` -- by pairing the
+    MODEL_* and bhv* found in each row, and flat ``{ bhvA, bhvB }`` arrays.
+    """
+    pairs: List["tuple"] = []
+    for child in init_list.named_children:
+        if child.type == "initializer_list":  # a struct row
+            text = child.text.decode()
+            beh = _BEHAVIOR_ID.search(text)
+            if beh is not None:
+                model = _MODEL_ID.search(text)
+                pairs.append((model.group(0) if model else None, beh.group(0)))
+        elif child.type == "identifier" and _BEHAVIOR_ID.fullmatch(child.text.decode()):
+            pairs.append((None, child.text.decode()))
+    return pairs
+
+
+def _behavior_tables_from_tree(tree) -> Dict[str, List["tuple"]]:
+    """Map static arrays that name behaviors to their (model, behavior) entries.
+
+    e.g. ``struct ExclamationBoxContents sExclamationBoxContents[] = {...}`` whose
+    rows pair a model with a behavior. Arrays naming no behavior are skipped, so
+    action-function tables (which list functions, not behaviors) never match.
+    """
+    tables: Dict[str, List["tuple"]] = {}
+
+    def visit(node) -> None:
+        if node.type == "declaration":
+            text = node.text.decode()
+            init = _find_descendant(node, "initializer_list") if "bhv" in text else None
+            name = re.search(r"\b([A-Za-z_]\w*)\s*\[\s*\]", text) if init else None
+            if init is not None and name is not None:
+                pairs = _behavior_table_rows(init)
+                if pairs:
+                    tables[name.group(1)] = pairs
+            return  # a declaration holds no nested behavior tables
         for child in node.children:
             visit(child)
 
@@ -269,30 +380,128 @@ def _reachable(
     return seen
 
 
+def _behavior_arg(args: List[str]) -> Optional[str]:
+    """The argument of a spawn call that denotes the behavior.
+
+    Returns a ``bhv*`` literal directly, else the runtime expression that holds
+    the behavior (named ``bhv`` or containing ``behavior``), else None.
+    """
+    candidate = None
+    for arg in args:
+        if _BEHAVIOR_ID.fullmatch(arg):
+            return arg
+        if arg == "bhv" or "behavior" in arg.lower():
+            candidate = arg
+    return candidate
+
+
+def _resolve_value(
+    value: str,
+    sibling_args: List[str],
+    behavior_tables: Dict[str, List["tuple"]],
+) -> List["tuple"]:
+    """Resolve a passed behavior value to (model, behavior) pairs, or [] if it
+    cannot be pinned down statically. A literal pairs with the MODEL_* passed
+    alongside it; a table name expands to the table's rows."""
+    if _BEHAVIOR_ID.fullmatch(value):
+        model = next((a for a in sibling_args if a.startswith("MODEL_")), None)
+        return [(model, value)]
+    base = _BASE_ID.match(value)
+    if base is not None and base.group(0) in behavior_tables:
+        return behavior_tables[base.group(0)]
+    return []
+
+
+def _resolve_data_spawns(
+    funcs: Dict[str, _Func],
+    func_behaviors: Dict[str, Set[str]],
+    behavior_tables: Dict[str, List["tuple"]],
+) -> List[SM64BehaviorDataSpawn]:
+    """Resolve spawns whose behavior argument is a runtime value.
+
+    Two shapes are handled, both attributed only to behaviors that actually
+    reach the code, so nothing is over-attributed:
+      A. the spawn site indexes a static behavior table directly
+         (``spawn_object(o, m, sTable[i].behavior)``);
+      B/C. the behavior is a parameter of the spawning helper, resolved from the
+         helper's call sites -- a forwarded literal, or a table passed in
+         (the exclamation box passing ``sExclamationBoxContents``).
+    Family wrappers are skipped: their literal spawns are already clean edges.
+    """
+    callers: Dict[str, List["tuple"]] = {}
+    for fn in funcs.values():
+        for call in fn.calls:
+            callers.setdefault(call.callee, []).append((fn.name, call.args))
+
+    rows: List[SM64BehaviorDataSpawn] = []
+    seen: Set["tuple"] = set()
+
+    def emit(owner, model, spawned, source, fn, line) -> None:
+        if (owner, spawned) in seen:
+            return
+        seen.add((owner, spawned))
+        rows.append(
+            SM64BehaviorDataSpawn(owner, spawned, model, source, fn.name, fn.file, line)
+        )
+
+    for fn in funcs.values():
+        if fn.name in _SPAWN_FAMILY:
+            continue  # family wrappers resolve at their literal call sites
+        for call in fn.calls:
+            if call.callee not in _SPAWN_FAMILY:
+                continue
+            beh = _behavior_arg(call.args)
+            if beh is None or _BEHAVIOR_ID.fullmatch(beh):
+                continue  # no behavior arg, or a literal (already a clean edge)
+            base_match = _BASE_ID.match(beh)
+            base = base_match.group(0) if base_match else ""
+            # A: a static behavior table indexed right here.
+            if base in behavior_tables:
+                for model, spawned in behavior_tables[base]:
+                    for owner in sorted(func_behaviors.get(fn.name, ())):
+                        emit(owner, model, spawned, base, fn, call.line)
+                continue
+            # B/C: the behavior is a parameter -> resolve from the call sites.
+            if base in fn.params:
+                idx = fn.params.index(base)
+                for caller, cargs in callers.get(fn.name, ()):
+                    if idx >= len(cargs):
+                        continue
+                    passed = cargs[idx]
+                    source = "arg" if _BEHAVIOR_ID.fullmatch(passed) else passed
+                    for model, spawned in _resolve_value(
+                        passed, cargs, behavior_tables
+                    ):
+                        for owner in sorted(func_behaviors.get(caller, ())):
+                            emit(owner, model, spawned, source, fn, call.line)
+    return sorted(rows, key=lambda r: (r.behavior_name, r.spawned_behavior))
+
+
 def parse_behavior_calls(
     repo: Path, root_to_behaviors: Dict[str, List[str]]
-) -> List[SM64BehaviorCall]:
-    """Build the behavior_call backbone from the behavior C source.
+) -> ParsedBehaviorCode:
+    """Build the behavior_call backbone (and resolved data-spawns) from the C.
 
     ``root_to_behaviors`` maps each ``CALL_NATIVE`` function name to the
     behavior(s) that name it (derived from the parsed behavior command stream).
     """
     behaviors_dir = repo.joinpath(*BEHAVIOR_SUBDIR)
     if not behaviors_dir.is_dir():
-        return []
+        return ParsedBehaviorCode([], [])
 
     # 1. Parse object-behavior files. These functions are the recursion set: the
     #    call graph is followed only through this object code. Action-function
-    #    tables are collected from the same parse so the dispatcher can be
-    #    followed into them.
+    #    tables and behavior tables are collected from the same parse.
     funcs: Dict[str, _Func] = {}
     action_tables: Dict[str, List[str]] = {}
+    behavior_tables: Dict[str, List["tuple"]] = {}
     for path in sorted(behaviors_dir.glob("*.inc.c")):
         rel = path.relative_to(repo).as_posix()
         tree = _get_parser().parse(path.read_bytes())
         for fn in _functions_from_tree(tree, rel):
             funcs[fn.name] = fn
         action_tables.update(_action_tables_from_tree(tree))
+        behavior_tables.update(_behavior_tables_from_tree(tree))
     recursion_set = set(funcs)
 
     # 2. A few CALL_NATIVE roots live outside behaviors/ (menu/cutscene/mario
@@ -303,6 +512,7 @@ def parse_behavior_calls(
         rel = path.relative_to(repo).as_posix()
         tree = _get_parser().parse(path.read_bytes())
         action_tables.update(_action_tables_from_tree(tree))
+        behavior_tables.update(_behavior_tables_from_tree(tree))
         for fn in _functions_from_tree(tree, rel):
             if fn.name in external and fn.name not in funcs:
                 funcs[fn.name] = fn
@@ -334,4 +544,6 @@ def parse_behavior_calls(
                         line=call.line,
                     )
                 )
-    return rows
+
+    data_spawns = _resolve_data_spawns(funcs, func_behaviors, behavior_tables)
+    return ParsedBehaviorCode(rows, data_spawns)
