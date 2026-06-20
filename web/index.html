@@ -29,6 +29,7 @@
       <button class="tab" data-tab="treemap">Treemap</button>
       <button class="tab" data-tab="graph">Graph</button>
       <button class="tab" data-tab="actions">Actions</button>
+      <button class="tab" data-tab="save">Save</button>
     </nav>
   </header>
 
@@ -217,6 +218,33 @@
           full text. Scroll to zoom, drag the background to pan.</p>
       </div>
     </section>
+
+    <!-- ===================== SAVE TAB ===================== -->
+    <section class="panel" id="tab-save">
+      <div class="save-wrap">
+        <div class="save-controls">
+          <span class="muted">The 0x200-byte EEPROM, byte for byte.</span>
+          <span class="status" id="save-status"></span>
+        </div>
+        <div class="save-stage" id="save-stage">
+          <svg id="save-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="map-tooltip" id="save-tooltip"></div>
+        </div>
+        <p class="note">Super Mario 64 saves to a tiny 512-byte EEPROM. The top
+          strip is the whole chip: each of the four files (<strong>A–D</strong>)
+          is stored <em>twice</em> (a primary and a backup, so a corrupt copy can
+          be recovered), followed by two copies of the menu data — each block
+          ending in a checksum. Click a block to lay out that
+          <code>struct</code> below, one cell per byte at its true offset, fields
+          coloured and sized to scale (this whole diagram is computed from
+          <code>save_struct</code> / <code>save_field</code>, and it provably
+          tiles all 512 bytes — see <code>save_struct_coverage</code>). The
+          progress <code>flags</code> word is then exploded into its 32 bits: the
+          named <code>SAVE_FLAG_*</code> bits (caps, keys, doors, cap-thieves,
+          secret stars) and the gaps where no flag is defined. Hover anything for
+          its details and the decomp's own note.</p>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
@@ -240,5 +268,6 @@
   <script src="treemap.js"></script>
   <script src="graph.js"></script>
   <script src="actions.js"></script>
+  <script src="save.js"></script>
 </body>
 </html>

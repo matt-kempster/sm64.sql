@@ -426,6 +426,7 @@ function wireEvents() {
         treemap: "SM64Treemap",
         graph: "SM64Graph",
         actions: "SM64Actions",
+        save: "SM64Save",
       };
       const mod = window[mods[tab.dataset.tab]];
       if (mod) mod.onShow();
