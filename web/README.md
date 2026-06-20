@@ -48,6 +48,11 @@ Actions**.
   `behavior_all_spawns` and `behavior_calls_*` views), with zoom/pan, a
   per-object dossier, and a toggle to highlight the spawns that exist only in
   code (not the bytecode)
+- `actions.js` — the Actions tab: a d3 force-directed graph of Mario's action
+  state machine (nodes = `ACT_*` from `mario_action`, clustered and coloured by
+  group; edges = transitions from `mario_all_transitions`), with zoom/pan, a
+  per-action dossier (id, flags, handler, transitions in/out with source links),
+  and per-group legend toggles
 - `examples.js` — the curated example queries shown in the sidebar
 - `style.css` — styling
 - `sm64.db` — the generated database (gitignored)

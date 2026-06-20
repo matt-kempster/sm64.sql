@@ -46,6 +46,44 @@ WHERE origin IN ('c', 'data')
 ORDER BY parent;`,
   },
   {
+    title: "Mario's action transitions",
+    sql: `-- Mario is a state machine: mario_all_transitions is every transition
+-- mined from the action handlers (literal targets + runtime ones resolved to a
+-- literal, like the forwarded land action or a ternary's branches). Where can a
+-- single jump go next? (See the Actions tab for the whole graph.)
+SELECT to_action FROM mario_all_transitions
+WHERE action_name = 'ACT_JUMP'
+ORDER BY to_action;`,
+  },
+  {
+    title: "Action hubs (most-entered states)",
+    sql: `-- Which actions the most other actions can transition into -- the sinks
+-- of the state machine (landing, falling, idling).
+SELECT to_action, COUNT(DISTINCT action_name) AS in_degree
+FROM mario_all_transitions
+GROUP BY to_action
+ORDER BY in_degree DESC
+LIMIT 15;`,
+  },
+  {
+    title: "Decode an action's flags & group",
+    sql: `-- Each ACT_* packs a group and flags into a 32-bit value; mario_action
+-- decodes both. Find every attacking action and where its handler lives.
+SELECT action_name, id, group_name, handler
+FROM mario_action
+WHERE flags_json LIKE '%ATTACKING%'
+ORDER BY group_name, action_name;`,
+  },
+  {
+    title: "Transitions hidden in runtime values",
+    sql: `-- mario_action_data_transition recovers transitions whose destination is
+-- a runtime value: a land action forwarded into a helper, or a ternary branch --
+-- invisible to a literal scan of the call site. Tagged by how it was resolved.
+SELECT action_name, to_action, source, file, line
+FROM mario_action_data_transition
+ORDER BY action_name;`,
+  },
+  {
     title: "What sound does each object make?",
     sql: `-- Sounds played from behavior C code (behavior_calls_sound), joined to
 -- the sound table for the bank each one belongs to.

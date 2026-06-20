@@ -9,7 +9,7 @@ reads those source files and writes the equivalent rows into a SQLite database,
 so questions like "which objects appear only in act 1?", "what music plays in
 each course?", or "where does each painting warp to?" become one-line queries.
 
-It currently populates 23 tables (plus 11 derived views) spanning placed
+It currently populates 26 tables (plus 14 derived views) spanning placed
 objects, models and per-level model loads, behaviors and their command scripts
 and native C code, levels/courses/areas, warps, dialog, music, animations,
 sounds, the in-game course and star names, and the named constants behavior
@@ -80,6 +80,9 @@ Pages on every push to `master`. See [`web/README.md`](web/README.md).
 | `behavior_command` | `data/behavior_data.c` | `behavior_name`, `seq`, `command`, `args`, `args_json` |
 | `behavior_call` | `src/game/behaviors/*.inc.c` | `behavior_name`, `function`, `seq`, `call`, `args`, `args_json`, `file`, `line` |
 | `behavior_data_spawn` | `src/game/behaviors/*.inc.c` | `behavior_name`, `spawned_behavior`, `spawned_model`, `source`, `function`, `file`, `line` |
+| `mario_action` | `include/sm64.h` + `src/game/mario*.c` | `action_name`, `id` (hex), `group_name`, `flags_json`, `handler`, `file`, `line` |
+| `mario_action_call` | `src/game/mario*.c` | `action_name`, `function`, `seq`, `call`, `target`, `args`, `args_json`, `file`, `line` |
+| `mario_action_data_transition` | `src/game/mario*.c` | `action_name`, `to_action`, `source`, `function`, `file`, `line` |
 | `warp` | `levels/*/script.c` | `level`, `area` (0 = level-global), `node_id`, `dest_level`, `dest_area`, `dest_node`, `flags`, `is_painting` |
 | `instant_warp` | `levels/*/script.c` | `level`, `area`, `warp_index`, `dest_area`, `displace_x/y/z` |
 | `area` | `levels/*/script.c` | `level`, `area`, `geo`, `terrain_type`, `background_music`, `dialog` |
@@ -164,6 +167,41 @@ This is what makes runtime spawns visible that the script alone cannot show: a
 Bob-omb's explosion (`spawn_object(bhvExplosion)` inside `bobomb_act_explode`)
 has no `SPAWN_*` opcode, so it is absent from `behavior_spawn` but present in
 `behavior_calls_spawn`.
+
+### Mario's action state machine
+
+Mario is a state machine: each frame he is in one *action* (`ACT_WALKING`,
+`ACT_LONG_JUMP`, …) and transitions to another by calling `set_mario_action(m,
+ACT_*, arg)`. The same tree-sitter machinery mines the whole machine from
+`src/game/`:
+
+- **`mario_action`** is the node table: every `ACT_*` constant, with its
+  `group_name` (the seven dispatch groups) and `flags_json` decoded from the
+  bit-packed value, and the handler `act_*` read from the authoritative
+  `mario_execute_*_action` dispatcher `switch` (which captures shared handlers and
+  fall-through cases).
+- **`mario_action_call`** is the transition backbone: from each action's handler,
+  reachability follows the static call graph through Mario's action code, and
+  every call to a transition *setter* (`set_mario_action` and its siblings) is
+  recorded, attributed to the action(s) that reach it. The four setters that take
+  the destination as an argument are the leaf vocabulary; the fixed-target helpers
+  (`set_steep_jump_action` → `ACT_STEEP_JUMP`, …) are recursed into.
+
+Two views and a table expose the edges:
+
+| View / table | Holds | Columns |
+| --- | --- | --- |
+| `mario_transition` | literal-target edges | `action_name`, `to_action` |
+| `mario_action_data_transition` | runtime targets resolved to a literal action | `action_name`, `to_action`, `source`, `function`, `file`, `line` |
+| `mario_all_transitions` | the dedup union of the two | `action_name`, `to_action` |
+
+`mario_action_data_transition` resolves the tractable runtime targets the same
+way `behavior_data_spawn` does: a forwarded land action
+(`common_air_action_step(m, ACT_JUMP_LAND, …)` → `act_jump` lands as
+`ACT_JUMP_LAND`) and a literal embedded in an expression (a ternary's two
+branches). The genuinely runtime tail — struct-table landings
+(`landingAction->endAction`) and two-level forwards — stays visible in
+**`mario_action_call_unclassified`**, the completeness residue.
 
 ### Behavior parameters
 
@@ -291,6 +329,17 @@ WHERE sound = 'SOUND_OBJ_BOBOMB_WALK';
 -- Completeness audit: captured C calls that no relation view classifies yet.
 SELECT call, n FROM behavior_call_unclassified LIMIT 25;
 
+-- Mario's action graph: where can a long jump go next?
+SELECT to_action FROM mario_all_transitions WHERE action_name = 'ACT_LONG_JUMP';
+
+-- The action hubs: which actions the most other actions can transition into.
+SELECT to_action, COUNT(DISTINCT action_name) AS in_degree
+FROM mario_all_transitions GROUP BY to_action ORDER BY in_degree DESC LIMIT 10;
+
+-- Every attacking action and its group (flags decoded from the packed value).
+SELECT action_name, group_name FROM mario_action
+WHERE flags_json LIKE '%ATTACKING%' ORDER BY group_name;
+
 -- Read a single behavior's command script, in order.
 SELECT seq, command, args FROM behavior_command
 WHERE behavior_name = 'bhvGoomba' ORDER BY seq;
@@ -331,7 +380,7 @@ mypy                   # type-check
 
 ## Status & limitations
 
-23 tables (plus 11 views) are populated from a full current `n64decomp/sm64`
+26 tables (plus 14 views) are populated from a full current `n64decomp/sm64`
 checkout: placed objects, macro objects and special objects; models and
 per-level model loads, behaviors and their command scripts and native C code,
 macro/special presets; levels, courses and areas; warps and instant warps;
