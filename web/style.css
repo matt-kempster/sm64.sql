@@ -649,13 +649,15 @@ table.heatmap .colhead:hover .rot { color: var(--blue); }
   background: var(--card);
   overflow: hidden;
 }
-#graph-svg {
+#graph-svg,
+#act-svg {
   width: 100%;
   height: 100%;
   display: block;
   cursor: grab;
 }
-#graph-svg:active {
+#graph-svg:active,
+#act-svg:active {
   cursor: grabbing;
 }
 .graph-zoom {

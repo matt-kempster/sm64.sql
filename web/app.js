@@ -425,6 +425,7 @@ function wireEvents() {
         heatmap: "SM64Heatmap",
         treemap: "SM64Treemap",
         graph: "SM64Graph",
+        actions: "SM64Actions",
       };
       const mod = window[mods[tab.dataset.tab]];
       if (mod) mod.onShow();

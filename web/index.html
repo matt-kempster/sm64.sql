@@ -28,6 +28,7 @@
       <button class="tab" data-tab="heatmap">Heatmap</button>
       <button class="tab" data-tab="treemap">Treemap</button>
       <button class="tab" data-tab="graph">Graph</button>
+      <button class="tab" data-tab="actions">Actions</button>
     </nav>
   </header>
 
@@ -172,6 +173,40 @@
           the bytecode.</p>
       </div>
     </section>
+
+    <!-- ===================== ACTIONS TAB ===================== -->
+    <section class="panel" id="tab-actions">
+      <div class="graph-wrap">
+        <div class="graph-controls">
+          <div class="legend" id="act-legend"></div>
+          <input type="search" id="act-search" class="graph-search"
+                 placeholder="find an action…" autocomplete="off" />
+          <span class="status" id="act-status"></span>
+        </div>
+        <div class="graph-stage" id="act-stage">
+          <svg id="act-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="graph-zoom" id="act-zoom">
+            <button id="act-zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+            <button id="act-zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+            <button id="act-zoom-reset" title="Reset view" aria-label="Reset view">⤢</button>
+          </div>
+          <div class="map-tooltip" id="act-tooltip"></div>
+          <aside class="graph-dossier" id="act-dossier" hidden></aside>
+        </div>
+        <p class="note">Mario is a state machine: each frame he is in one
+          <strong>action</strong> (<code>ACT_*</code>) and transitions to another by
+          calling <code>set_mario_action</code>. Every action is a node, clustered
+          and coloured by its <strong>group</strong> (stationary, moving, airborne,
+          submerged, cutscene, automatic, object); each arrow is a transition mined
+          from the action's handler and the helpers it reaches. Node size is the
+          transition degree, so the hubs (<code>FREEFALL</code>, <code>IDLE</code>)
+          are biggest; dashed-ring nodes have no handler of their own (the zero
+          state and engine remap targets). Toggle a group in the legend, hover to
+          focus an action's neighbours, click for its dossier — id, flags, handler,
+          and the transitions in and out (with links to the decomp source). Scroll
+          to zoom, drag the background to pan.</p>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
@@ -194,5 +229,6 @@
   <script src="heatmap.js"></script>
   <script src="treemap.js"></script>
   <script src="graph.js"></script>
+  <script src="actions.js"></script>
 </body>
 </html>
