@@ -81,8 +81,8 @@ Pages on every push to `master`. See [`web/README.md`](web/README.md).
 | `behavior_call` | `src/game/behaviors/*.inc.c` | `behavior_name`, `function`, `seq`, `call`, `args`, `args_json`, `file`, `line` |
 | `behavior_data_spawn` | `src/game/behaviors/*.inc.c` | `behavior_name`, `spawned_behavior`, `spawned_model`, `source`, `function`, `file`, `line` |
 | `mario_action` | `include/sm64.h` + `src/game/mario*.c` | `action_name`, `id` (hex), `group_name`, `flags_json`, `handler`, `file`, `line` |
-| `mario_action_call` | `src/game/mario*.c` | `action_name`, `function`, `seq`, `call`, `target`, `args`, `args_json`, `file`, `line` |
-| `mario_action_data_transition` | `src/game/mario*.c` | `action_name`, `to_action`, `source`, `function`, `file`, `line` |
+| `mario_action_call` | `src/game/mario*.c` | `action_name`, `function`, `seq`, `call`, `target`, `condition`, `args`, `args_json`, `file`, `line` |
+| `mario_action_data_transition` | `src/game/mario*.c` | `action_name`, `to_action`, `source`, `condition`, `function`, `file`, `line` |
 | `warp` | `levels/*/script.c` | `level`, `area` (0 = level-global), `node_id`, `dest_level`, `dest_area`, `dest_node`, `flags`, `is_painting` |
 | `instant_warp` | `levels/*/script.c` | `level`, `area`, `warp_index`, `dest_area`, `displace_x/y/z` |
 | `area` | `levels/*/script.c` | `level`, `area`, `geo`, `terrain_type`, `background_music`, `dialog` |
@@ -185,7 +185,10 @@ ACT_*, arg)`. The same tree-sitter machinery mines the whole machine from
   every call to a transition *setter* (`set_mario_action` and its siblings) is
   recorded, attributed to the action(s) that reach it. The four setters that take
   the destination as an argument are the leaf vocabulary; the fixed-target helpers
-  (`set_steep_jump_action` → `ACT_STEEP_JUMP`, …) are recursed into.
+  (`set_steep_jump_action` → `ACT_STEEP_JUMP`, …) are recursed into. Each call
+  also records its **trigger** — the nearest enclosing `if`-guard
+  (`m->input & INPUT_Z_PRESSED`, `m->forwardVel >= 38.0f`), negated for an `else`
+  branch — which is what the Actions tab labels each arrow with.
 
 Two views and a table expose the edges:
 
