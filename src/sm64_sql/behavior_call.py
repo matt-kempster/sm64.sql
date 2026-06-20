@@ -32,15 +32,18 @@ completeness audit is a query, not a promise.
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-# tree-sitter is a build-time dependency (it produces the database); it never
-# ships to the web client. Pinned to 0.21.x in pyproject (its Language()/Parser()
-# API differs from 0.22+).
-import tree_sitter_c
-from tree_sitter import Language, Parser
+from sm64_sql.c_parse import (
+    Func,
+    find_descendant,
+    functions_from_tree,
+    get_parser,
+    parse_c_functions,
+    reachable,
+)
 
 BEHAVIOR_SUBDIR = ("src", "game", "behaviors")
 
@@ -54,7 +57,7 @@ BEHAVIOR_SUBDIR = ("src", "game", "behaviors")
 # those per-action functions (and the spawns/sounds/dialog inside them) would be
 # invisible, since the dispatch goes through a function pointer the call graph
 # cannot see.
-_DISPATCHERS = {"cur_obj_call_action_function"}
+_DISPATCHERS = frozenset({"cur_obj_call_action_function"})
 _FN_PTR_TABLE = re.compile(r"\(\s*\*\s*(\w+)\s*\[\s*\]\s*\)\s*\(")
 
 # The object-spawning helpers (kept in sync with the behavior_calls_spawn view in
@@ -92,21 +95,6 @@ class SM64BehaviorCall:
 
 
 @dataclass
-class _Call:
-    callee: str
-    args: List[str]
-    line: int
-
-
-@dataclass
-class _Func:
-    name: str
-    file: str  # repo-relative
-    calls: List[_Call] = field(default_factory=list)
-    params: List[Optional[str]] = field(default_factory=list)
-
-
-@dataclass
 class SM64BehaviorDataSpawn:
     """A spawn whose target is a runtime value, resolved from a static table or
     a forwarded literal (what the literal-only behavior_calls_spawn view cannot
@@ -127,122 +115,6 @@ class ParsedBehaviorCode:
     data_spawns: List[SM64BehaviorDataSpawn]
 
 
-_parser: Optional[Parser] = None
-
-
-def _get_parser() -> Parser:
-    global _parser
-    if _parser is None:
-        language = Language(tree_sitter_c.language(), "c")
-        parser = Parser()
-        parser.set_language(language)
-        _parser = parser
-    return _parser
-
-
-def _function_name(node) -> Optional[str]:
-    """Return the identifier of a ``function_definition`` node.
-
-    The name is nested under the ``declarator`` field, possibly wrapped in a
-    ``pointer_declarator`` (pointer return type) or ``parenthesized_declarator``;
-    descend until the ``identifier`` is reached.
-    """
-    declarator = node.child_by_field_name("declarator")
-    while declarator is not None and declarator.type != "identifier":
-        nxt = declarator.child_by_field_name("declarator")
-        if nxt is None:
-            nxt = next(
-                (
-                    child
-                    for child in declarator.children
-                    if child.type
-                    in (
-                        "function_declarator",
-                        "identifier",
-                        "pointer_declarator",
-                        "parenthesized_declarator",
-                    )
-                ),
-                None,
-            )
-        declarator = nxt
-    return declarator.text.decode() if declarator is not None else None
-
-
-def _function_params(node) -> List[Optional[str]]:
-    """Return a function_definition's parameter names (None for an unnamed one).
-
-    Order is preserved, so a behavior argument written as a parameter can be
-    mapped to its index and looked up in the caller's arguments.
-    """
-    declarator = node.child_by_field_name("declarator")
-    fdecl = _find_descendant(declarator, "function_declarator") if declarator else None
-    plist = fdecl.child_by_field_name("parameters") if fdecl is not None else None
-    if plist is None:
-        return []
-    params: List[Optional[str]] = []
-    for child in plist.named_children:
-        if child.type != "parameter_declaration":
-            continue
-        pdecl = child.child_by_field_name("declarator")
-        ident = _find_descendant(pdecl, "identifier") if pdecl is not None else None
-        params.append(ident.text.decode() if ident is not None else None)
-    return params
-
-
-def _collect_calls(body) -> List[_Call]:
-    """Every ``call_expression`` in a function body, in source (pre-order)."""
-    calls: List[_Call] = []
-
-    def visit(node) -> None:
-        if node.type == "call_expression":
-            fn = node.child_by_field_name("function")
-            arg_list = node.child_by_field_name("arguments")
-            # Only plain named calls: a function-pointer call or a cast that the
-            # grammar shapes like a call (e.g. "(s32)(x)") is not a relation.
-            if fn is not None and fn.type == "identifier" and arg_list is not None:
-                args = [
-                    child.text.decode()
-                    for child in arg_list.named_children
-                    if child.type != "comment"
-                ]
-                calls.append(_Call(fn.text.decode(), args, node.start_point[0] + 1))
-        for child in node.children:
-            visit(child)
-
-    visit(body)
-    return calls
-
-
-def _functions_from_tree(tree, rel: str) -> List[_Func]:
-    funcs: List[_Func] = []
-
-    def visit(node) -> None:
-        if node.type == "function_definition":
-            name = _function_name(node)
-            body = node.child_by_field_name("body")
-            if name is not None and body is not None:
-                funcs.append(
-                    _Func(name, rel, _collect_calls(body), _function_params(node))
-                )
-            return  # C has no nested function definitions
-        for child in node.children:
-            visit(child)
-
-    visit(tree.root_node)
-    return funcs
-
-
-def _find_descendant(node, node_type):
-    if node.type == node_type:
-        return node
-    for child in node.children:
-        found = _find_descendant(child, node_type)
-        if found is not None:
-            return found
-    return None
-
-
 def _action_tables_from_tree(tree) -> Dict[str, List[str]]:
     """Map every ``void (*sFoo[])(void) = {...}`` table to the functions it lists.
 
@@ -254,7 +126,7 @@ def _action_tables_from_tree(tree) -> Dict[str, List[str]]:
     def visit(node) -> None:
         if node.type == "declaration":
             match = _FN_PTR_TABLE.search(node.text.decode())
-            init = _find_descendant(node, "initializer_list") if match else None
+            init = find_descendant(node, "initializer_list") if match else None
             if match and init is not None:
                 fns = [
                     child.text.decode()
@@ -302,7 +174,7 @@ def _behavior_tables_from_tree(tree) -> Dict[str, List["tuple"]]:
     def visit(node) -> None:
         if node.type == "declaration":
             text = node.text.decode()
-            init = _find_descendant(node, "initializer_list") if "bhv" in text else None
+            init = find_descendant(node, "initializer_list") if "bhv" in text else None
             name = re.search(r"\b([A-Za-z_]\w*)\s*\[\s*\]", text) if init else None
             if init is not None and name is not None:
                 pairs = _behavior_table_rows(init)
@@ -314,11 +186,6 @@ def _behavior_tables_from_tree(tree) -> Dict[str, List["tuple"]]:
 
     visit(tree.root_node)
     return tables
-
-
-def parse_c_functions(path: Path, rel: str) -> List[_Func]:
-    """Parse one C file into its function definitions and their call sites."""
-    return _functions_from_tree(_get_parser().parse(path.read_bytes()), rel)
 
 
 def _files_defining(repo: Path, names: Set[str]) -> List[Path]:
@@ -343,41 +210,6 @@ def _files_defining(repo: Path, names: Set[str]) -> List[Path]:
         if {fn.name for fn in parse_c_functions(path, rel)} & names:
             result.append(path)
     return result
-
-
-def _reachable(
-    root: str,
-    funcs: Dict[str, _Func],
-    recursion_set: Set[str],
-    action_tables: Dict[str, List[str]],
-) -> Set[str]:
-    """Functions reachable from ``root`` through object-behavior code.
-
-    Recursion descends into a callee in ``recursion_set`` (the behaviors/
-    functions); everything else is a leaf. A call to the action dispatcher
-    ``cur_obj_call_action_function(table)`` is followed into every function the
-    table lists -- the only way those per-action functions are reached, since the
-    dispatch is through a function-pointer table. ``root`` itself is always
-    included, even when it lives outside behaviors/ (an external CALL_NATIVE root).
-    """
-    seen = {root}
-    stack = [root]
-
-    def enqueue(name: str) -> None:
-        if name in recursion_set and name not in seen:
-            seen.add(name)
-            stack.append(name)
-
-    while stack:
-        fn = funcs.get(stack.pop())
-        if fn is None:
-            continue
-        for call in fn.calls:
-            enqueue(call.callee)
-            if call.callee in _DISPATCHERS and call.args:
-                for action_fn in action_tables.get(call.args[0], ()):
-                    enqueue(action_fn)
-    return seen
 
 
 def _behavior_arg(args: List[str]) -> Optional[str]:
@@ -413,7 +245,7 @@ def _resolve_value(
 
 
 def _resolve_data_spawns(
-    funcs: Dict[str, _Func],
+    funcs: Dict[str, Func],
     func_behaviors: Dict[str, Set[str]],
     behavior_tables: Dict[str, List["tuple"]],
 ) -> List[SM64BehaviorDataSpawn]:
@@ -492,13 +324,13 @@ def parse_behavior_calls(
     # 1. Parse object-behavior files. These functions are the recursion set: the
     #    call graph is followed only through this object code. Action-function
     #    tables and behavior tables are collected from the same parse.
-    funcs: Dict[str, _Func] = {}
+    funcs: Dict[str, Func] = {}
     action_tables: Dict[str, List[str]] = {}
     behavior_tables: Dict[str, List["tuple"]] = {}
     for path in sorted(behaviors_dir.glob("*.inc.c")):
         rel = path.relative_to(repo).as_posix()
-        tree = _get_parser().parse(path.read_bytes())
-        for fn in _functions_from_tree(tree, rel):
+        tree = get_parser().parse(path.read_bytes())
+        for fn in functions_from_tree(tree, rel):
             funcs[fn.name] = fn
         action_tables.update(_action_tables_from_tree(tree))
         behavior_tables.update(_behavior_tables_from_tree(tree))
@@ -510,10 +342,10 @@ def parse_behavior_calls(
     external = set(root_to_behaviors) - recursion_set
     for path in _files_defining(repo, external):
         rel = path.relative_to(repo).as_posix()
-        tree = _get_parser().parse(path.read_bytes())
+        tree = get_parser().parse(path.read_bytes())
         action_tables.update(_action_tables_from_tree(tree))
         behavior_tables.update(_behavior_tables_from_tree(tree))
-        for fn in _functions_from_tree(tree, rel):
+        for fn in functions_from_tree(tree, rel):
             if fn.name in external and fn.name not in funcs:
                 funcs[fn.name] = fn
 
@@ -523,7 +355,9 @@ def parse_behavior_calls(
     for root, behaviors in root_to_behaviors.items():
         if root not in funcs:
             continue  # engine-helper "root" with no parsed body, or a macro
-        for reached in _reachable(root, funcs, recursion_set, action_tables):
+        for reached in reachable(
+            root, funcs, recursion_set, action_tables, _DISPATCHERS
+        ):
             func_behaviors.setdefault(reached, set()).update(behaviors)
 
     # 4. Emit one row per (behavior, call site), ordered for a stable database.
