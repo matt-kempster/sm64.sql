@@ -238,9 +238,12 @@
           back out. Drill down through <code>SaveBuffer</code> → the four files
           (<strong>A–D</strong>, each stored twice — a primary and a backup so a
           corrupt copy can recover) → one <code>SaveFile</code> → its
-          <code>courseStars</code> (a byte per course) or the <code>flags</code>
-          word (its 32 progress bits: caps, keys, doors, cap-thieves, secret
-          stars — with the gaps where no <code>SAVE_FLAG_*</code> is defined).
+          <code>courseStars</code> (one byte per course — drill a course to see
+          its six named stars, its 100-coin star, and the cannon bit, which by an
+          SM64 quirk actually unlocks the <em>previous</em> course's cannon) or
+          the <code>flags</code> word (its 32 progress bits: caps, keys, doors,
+          cap-thieves, secret stars — with the gaps where no
+          <code>SAVE_FLAG_*</code> is defined).
           It's all computed from <code>save_struct</code> / <code>save_field</code>
           / <code>save_flag</code>, and provably tiles every byte (see
           <code>save_struct_coverage</code>). Hover a tile for its offset and the

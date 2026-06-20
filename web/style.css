@@ -467,20 +467,37 @@ tbody tr:hover { background: #fbfaf4; }
 .save-seg.link:hover rect { stroke: var(--ink); stroke-width: 2; }
 .save-seg.sel rect { stroke: var(--blue); stroke-width: 2; }
 .save-seg.unused rect { stroke-dasharray: 2 2; stroke: #cdd2de; }
-.save-seg-name {
-  font: 700 11px var(--mono);
-  text-anchor: middle;
-  paint-order: stroke;
-  stroke: rgba(255, 255, 255, 0.5);
-  stroke-width: 2.5px;
-  stroke-linejoin: round;
-  pointer-events: none;
+
+/* wrapping, ellipsizing tile labels (foreignObject + HTML, like the treemap) */
+.save-fo { overflow: hidden; pointer-events: none; }
+.save-lab {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 3px 5px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  font-family: var(--mono);
+  line-height: 1.12;
+  overflow: hidden;
 }
-.save-seg-sub {
-  fill: #5a6177;
-  font: 9px var(--mono);
-  text-anchor: middle;
-  pointer-events: none;
+.save-lab .nm {
+  font-weight: 700;
+  font-size: 11px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.save-lab .sb {
+  font-size: 9px;
+  opacity: 0.75;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---------- heatmap ---------- */

@@ -27,7 +27,7 @@
   let path = []; // root chain of nodes currently drilled into
 
   // layout
-  const PADX = 16, PADTOP = 14, BAND = 18, BARH = 56, VGAP = 34;
+  const PADX = 16, PADTOP = 14, BAND = 18, BARH = 58, VGAP = 50;
 
   // Same palette + tinting as the Treemap tab, so the two tabs read alike.
   const PALETTE = [
@@ -42,8 +42,16 @@
     "caps & keys", "doors", "lost-cap thieves", "secret stars", "world state",
   ];
   const scale = d3.scaleOrdinal(PALETTE).domain(KIND_ORDER);
-  const GREY = { padding: "#c7cdda", unused: "#eceef4" };
-  const colorOf = (kind) => GREY[kind] || scale(kind);
+  // Kinds that get a fixed hue rather than one off the cycling type scale:
+  // the structural greys, and the star-byte bits.
+  const FIXED = {
+    padding: "#c7cdda",
+    unused: "#eceef4",
+    "act star": "#f6c945",
+    "100-coin star": "#ff922b",
+    cannon: "#22b8cf",
+  };
+  const colorOf = (kind) => FIXED[kind] || scale(kind);
   const tint = (hex, t) => d3.interpolateRgb(hex, "#ffffff")(t);
   function textOn(bg) {
     const c = d3.color(bg).rgb();
@@ -77,6 +85,32 @@
     return t;
   }
 
+  // A wrapping, ellipsizing label inside the tile (a foreignObject + HTML div,
+  // the same approach as the Treemap tab) so even narrow tiles stay labelled:
+  // the name wraps and, if it still cannot fit, elides rather than vanishing.
+  function addLabel(g, n, seg, top, fill) {
+    if (seg.w < 11) return;
+    const fo = mk(
+      "foreignObject",
+      { x: seg.x + 1, y: top, width: Math.max(0, seg.w - 2), height: BARH, class: "save-fo" },
+      g
+    );
+    const div = document.createElement("div");
+    div.className = "save-lab";
+    div.style.color = textOn(fill);
+    const nm = document.createElement("span");
+    nm.className = "nm";
+    nm.textContent = n.label || "—";
+    div.appendChild(nm);
+    if (n.sub) {
+      const sb = document.createElement("span");
+      sb.className = "sb";
+      sb.textContent = n.sub;
+      div.appendChild(sb);
+    }
+    fo.appendChild(div);
+  }
+
   // --- data ----------------------------------------------------------------
   function load() {
     const rows = (sql) => {
@@ -105,7 +139,25 @@
         (flagsBy[group] = flagsBy[group] || []).push({ bit, name, mask });
       }
     );
-    return { structs, fieldsBy, flagsBy };
+    // Course names (rowid order == enum order: COURSE_NONE, BOB, WF, ... bonus)
+    // so courseStars[i] / courseCoinScores[i] (indexed by courseNum-1) label as
+    // the (i+1)-th course. Plus each course's six act-star names, to label the
+    // star byte's bits.
+    let courses = [];
+    let starsBy = {};
+    try {
+      courses = rows("SELECT course_name, display_name, is_bonus FROM course").map(
+        ([course_name, display_name, is_bonus]) => ({ course_name, display_name, is_bonus })
+      );
+      rows("SELECT course_name, act, name FROM star WHERE kind = 'main'").forEach(
+        ([course_name, act, name]) => {
+          (starsBy[course_name] = starsBy[course_name] || {})[act] = name;
+        }
+      );
+    } catch (e) {
+      /* older DBs may lack these; star/course labels just fall back to indices */
+    }
+    return { structs, fieldsBy, flagsBy, courses, starsBy };
   }
 
   // --- build the hierarchy -------------------------------------------------
@@ -173,26 +225,76 @@
     return out;
   }
 
-  // Primitive array -> one tile per element (a course's star/coin byte, etc.).
+  // Primitive array -> one tile per element. courseStars / courseCoinScores are
+  // indexed by courseNum-1, so element i is the (i+1)-th course (courses[0] is
+  // COURSE_NONE); label each with that course's name. A courseStars byte further
+  // drills into its 8 star/cannon bits.
   function elements(f, owner) {
+    const isStars = f.name === "courseStars";
+    const isCoins = f.name === "courseCoinScores";
     const out = [];
     for (let i = 0; i < f.count; i++) {
+      const course = isStars || isCoins ? data.courses[i + 1] : null;
       out.push({
-        label: `[${i}]`,
-        sub: f.type,
+        label: course ? course.display_name : `[${i}]`,
+        sub: isCoins ? "max coins" : isStars ? "star flags" : `${f.type} [${i}]`,
         kind: "element",
         colorKey: f.type,
         size: f.elemSize,
         offset: f.offset + i * f.elemSize,
-        doc: null,
+        doc: course ? `${owner}.${f.name}[${i}] — ${course.course_name}` : null,
         owner,
-        query: `-- ${owner}.${f.name}[${i}]\nSELECT * FROM save_field WHERE struct_name = '${sqlStr(
+        query: `-- ${owner}.${f.name}[${i}]${course ? ` (${course.course_name})` : ""}\nSELECT * FROM save_field WHERE struct_name = '${sqlStr(
           owner
         )}' AND field_name = '${sqlStr(f.name)}';`,
-        children: null,
+        children: isStars ? buildStarBits(i) : null,
       });
     }
     return out;
+  }
+
+  // A course's star byte: bits 0-5 are its six act stars (named from the star
+  // table), bit 6 the 100-coin star, bit 7 the cannon-open flag -- which, per the
+  // decomp's "byte following each course" quirk, actually unlocks the *previous*
+  // course's cannon (cannon of course c is courseStars[c] bit 7, but stars of
+  // course c are courseStars[c-1]).
+  function buildStarBits(byteIndex) {
+    const starCourse = data.courses[byteIndex + 1]; // whose stars bits 0-6 are
+    const cannonCourse = data.courses[byteIndex]; // whose cannon bit 7 holds
+    const named = (starCourse && data.starsBy[starCourse.course_name]) || {};
+    const cannonReal = cannonCourse && cannonCourse.course_name !== "COURSE_NONE";
+    const bits = [];
+    for (let b = 0; b < 8; b++) {
+      let node;
+      if (b <= 5) {
+        const act = b + 1;
+        node = {
+          label: named[act] || `Star ${act}`,
+          sub: `act ${act}`,
+          colorKey: "act star",
+          doc: starCourse ? `${starCourse.display_name} · star ${act}` : null,
+        };
+      } else if (b === 6) {
+        node = {
+          label: "100-coin Star",
+          sub: "bit 6",
+          colorKey: "100-coin star",
+          doc: starCourse ? `${starCourse.display_name} · 100-coin star` : null,
+        };
+      } else {
+        node = {
+          label: "Cannon",
+          sub: cannonReal ? cannonCourse.display_name : "(unused)",
+          colorKey: "cannon",
+          doc:
+            "Cannon-open flag. SM64 quirk: bit 7 of a course's byte unlocks the " +
+            "cannon for the *previous* course — the decomp notes it lives in " +
+            `"the byte following each course"${cannonReal ? ` (here: ${cannonCourse.display_name})` : ""}.`,
+        };
+      }
+      bits.push({ ...node, kind: "bit", size: 1, offset: b, owner: null, query: null, children: null });
+    }
+    return bits;
   }
 
   // The flags u32 -> 32 bit tiles; bits with no SAVE_FLAG are the gaps.
@@ -282,7 +384,8 @@
       const last = i === path.length - 1;
       const b = document.createElement("button");
       b.className = "save-crumb" + (last ? " current" : "");
-      b.textContent = node.label + (node.sub && node.kind !== "field" && node.kind !== "struct" ? ` ${node.sub}` : "");
+      // Only a file/menu instance needs its copy (primary/backup) in the crumb.
+      b.textContent = node.label + (node.kind === "struct" && node.sub ? ` ${node.sub}` : "");
       if (!last)
         b.addEventListener("click", () => {
           path = path.slice(0, i + 1);
@@ -346,17 +449,24 @@
     }
     const height = y - VGAP + PADTOP;
 
-    // 2) connectors (funnels) from an opened tile to the bar below it.
+    // 2) connectors: a curvy funnel from an opened tile down to its bar. Each
+    // side is a vertical cubic Bezier (control points at the midpoint height) so
+    // the expansion reads as a smooth zoom rather than a hard trapezoid.
     for (let k = 0; k < bars.length - 1; k++) {
       const sel = bars[k].sel;
       if (!sel) continue;
       const yTop = bars[k].top + BARH;
       const yBot = bars[k + 1].top;
+      const ym = (yTop + yBot) / 2;
+      const lx = sel.x, rx = sel.x + sel.w; // opened tile edges
+      const bl = PADX, br = PADX + innerW; // child bar edges
       const fill = colorOf(sel.node.colorKey);
       mk(
         "path",
         {
-          d: `M${sel.x},${yTop} L${sel.x + sel.w},${yTop} L${PADX + innerW},${yBot} L${PADX},${yBot} Z`,
+          d:
+            `M${lx},${yTop} C${lx},${ym} ${bl},${ym} ${bl},${yBot} ` +
+            `L${br},${yBot} C${br},${ym} ${rx},${ym} ${rx},${yTop} Z`,
           fill,
           "fill-opacity": 0.1,
           stroke: fill,
@@ -390,26 +500,7 @@
           { x: seg.x + 0.5, y: bar.top, width: Math.max(0, seg.w - 1), height: BARH, rx: 4, fill },
           g
         );
-        // labels, if they fit
-        const fg = textOn(fill);
-        const name = n.label;
-        if (name && seg.w > name.length * 6.1 + 8) {
-          const nm = txt(
-            svg,
-            seg.x + seg.w / 2,
-            bar.top + (n.sub && seg.w > 40 ? 24 : BARH / 2 + 4),
-            name,
-            "save-seg-name"
-          );
-          nm.setAttribute("fill", fg);
-        }
-        if (n.sub && seg.w > 44) {
-          const subt = txt(svg, seg.x + seg.w / 2, bar.top + 39, n.sub, "save-seg-sub");
-          subt.setAttribute("fill", fg === "#fff" ? "rgba(255,255,255,0.8)" : "#5a6177");
-        } else if (!name && seg.w > 14) {
-          // unused bit: show its index so the gaps are still readable
-          txt(svg, seg.x + seg.w / 2, bar.top + BARH / 2 + 4, String(n.offset), "save-seg-sub");
-        }
+        addLabel(g, n, seg, bar.top, fill);
         const html = tipHtml(n);
         g.addEventListener("mousemove", (e) => showTip(html, e));
         g.addEventListener("mouseleave", hideTip);
