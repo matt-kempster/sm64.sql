@@ -122,6 +122,7 @@ class SM64MarioActionCall:
     seq: int  # 0-based position of the call within that function
     call: str  # the setter, e.g. set_mario_action
     target: Optional[str]  # the action argument (ACT_* literal, or an expression)
+    condition: Optional[str]  # the enclosing if-guard (the trigger), if any
     args: str  # comment-stripped, comma-joined arguments
     args_json: str  # JSON array of the top-level arguments
     file: str  # repo-relative path of the definition (clickable provenance)
@@ -146,6 +147,7 @@ class SM64MarioActionDataTransition:
     action_name: str  # source ACT_* (joins mario_action), via reachability
     to_action: str  # the resolved destination ACT_* (joins mario_action)
     source: str  # "expr" (literal in expression) or the forwarded parameter name
+    condition: Optional[str]  # the enclosing if-guard at the resolved site, if any
     function: str  # the C function the transition was resolved at
     file: str
     line: int
@@ -273,16 +275,24 @@ def _resolve_data_transitions(
       - the target is a parameter of the enclosing helper, resolved one level
         from the helper's call sites (a forwarded literal land action).
     """
-    callers: Dict[str, List[Tuple[str, List[str], int]]] = {}
+    callers: Dict[str, List[Tuple[str, List[str], int, Optional[str]]]] = {}
     for fn in funcs.values():
         for call in fn.calls:
-            callers.setdefault(call.callee, []).append((fn.name, call.args, call.line))
+            callers.setdefault(call.callee, []).append(
+                (fn.name, call.args, call.line, call.condition)
+            )
 
     rows: List[SM64MarioActionDataTransition] = []
     seen: Set[Tuple[str, str]] = set()
 
     def emit(
-        action: str, to_action: str, source: str, function: str, file: str, line: int
+        action: str,
+        to_action: str,
+        source: str,
+        condition: Optional[str],
+        function: str,
+        file: str,
+        line: int,
     ) -> None:
         if to_action not in action_names:
             return
@@ -292,7 +302,7 @@ def _resolve_data_transitions(
         seen.add(key)
         rows.append(
             SM64MarioActionDataTransition(
-                action, to_action, source, function, file, line
+                action, to_action, source, condition, function, file, line
             )
         )
 
@@ -307,21 +317,29 @@ def _resolve_data_transitions(
             lits = [lit for lit in _ACT_LITERAL.findall(tgt) if lit in action_names]
             if lits:
                 # A literal embedded in an expression (a ternary's branches);
-                # provenance is the setter call site itself.
+                # provenance and guard are the setter call site itself.
                 for lit in lits:
                     for action in sorted(func_actions[name]):
-                        emit(action, lit, "expr", fn.name, fn.file, call.line)
+                        emit(
+                            action,
+                            lit,
+                            "expr",
+                            call.condition,
+                            fn.name,
+                            fn.file,
+                            call.line,
+                        )
             elif tgt in fn.params:
                 # A forwarded parameter: resolve from the helper's call sites,
-                # attributing to the actions that reach each caller. Provenance is
-                # the caller's call site, where the literal action is written.
+                # attributing to the actions that reach each caller. Provenance and
+                # guard are the caller's call site, where the literal is written.
                 idx = fn.params.index(tgt)
-                for caller, cargs, cline in callers.get(fn.name, ()):
+                for caller, cargs, cline, ccond in callers.get(fn.name, ()):
                     if idx >= len(cargs) or cargs[idx] not in action_names:
                         continue
                     cfile = funcs[caller].file if caller in funcs else fn.file
                     for action in sorted(func_actions.get(caller, ())):
-                        emit(action, cargs[idx], tgt, caller, cfile, cline)
+                        emit(action, cargs[idx], tgt, ccond, caller, cfile, cline)
     return sorted(rows, key=lambda r: (r.action_name, r.to_action))
 
 
@@ -395,6 +413,7 @@ def parse_mario_actions(repo: Path) -> ParsedMarioActions:
                         seq=seq,
                         call=call.callee,
                         target=target,
+                        condition=call.condition,
                         args=", ".join(call.args),
                         args_json=json.dumps(call.args),
                         file=fn.file,

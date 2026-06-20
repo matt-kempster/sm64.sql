@@ -667,3 +667,31 @@ def test_mario_data_transitions_over_real_data(conn):
     ]
     assert data > 80
     assert allt == lit + data
+
+
+def test_mario_transition_conditions_over_real_data(conn):
+    cur = conn.cursor()
+
+    # Most transition sites are guarded, and the trigger condition is mined.
+    tot = cur.execute("SELECT COUNT(*) FROM mario_action_call").fetchone()[0]
+    withc = cur.execute(
+        "SELECT COUNT(*) FROM mario_action_call WHERE condition IS NOT NULL"
+    ).fetchone()[0]
+    assert withc > tot * 0.6
+
+    # A known trigger, verified against the source: a jump becomes a ground-pound
+    # when Z is pressed.
+    gp = cur.execute(
+        "SELECT condition FROM mario_action_call "
+        "WHERE action_name='ACT_JUMP' AND target='ACT_GROUND_POUND' "
+        "AND condition IS NOT NULL"
+    ).fetchall()
+    assert gp and any("INPUT_Z" in row[0] for row in gp)
+
+    # else-branch transitions are negated, never recorded as the bare condition.
+    assert (
+        cur.execute(
+            "SELECT COUNT(*) FROM mario_action_call WHERE condition LIKE '!(%'"
+        ).fetchone()[0]
+        > 0
+    )

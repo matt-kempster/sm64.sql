@@ -41,6 +41,7 @@ class Call:
     callee: str
     args: List[str]
     line: int
+    condition: Optional[str] = None  # nearest enclosing if-guard (None if none)
 
 
 @dataclass
@@ -115,6 +116,36 @@ def function_params(node) -> List[Optional[str]]:
     return params
 
 
+def _guard_condition(call_node) -> Optional[str]:
+    """The condition under which ``call_node`` runs: the nearest enclosing ``if``.
+
+    Walks up to the innermost ``if_statement`` the call sits inside (stopping at
+    the function boundary). A call in the ``else`` branch is negated. The outer
+    parentheses are stripped and whitespace collapsed, so the result reads as a
+    label -- e.g. ``m->input & INPUT_B_PRESSED`` or ``!(m->vel[1] > 0.0f)``. A
+    call guarded by nothing (or by a switch / early-return idiom) returns None.
+    """
+    child = call_node
+    node = call_node.parent
+    while node is not None:
+        if node.type == "function_definition":
+            return None
+        if node.type == "if_statement":
+            cond = node.child_by_field_name("condition")
+            if cond is not None:
+                text = " ".join(cond.text.decode().split())
+                if text.startswith("(") and text.endswith(")"):
+                    text = text[1:-1].strip()
+                # We ascended into this if through `child`; if that is the
+                # `else` body, the call runs under the negated condition.
+                alt = node.child_by_field_name("alternative")
+                in_else = alt is not None and child == alt
+                return f"!({text})" if in_else else text
+        child = node
+        node = node.parent
+    return None
+
+
 def collect_calls(body) -> List[Call]:
     """Every ``call_expression`` in a function body, in source (pre-order)."""
     calls: List[Call] = []
@@ -131,7 +162,14 @@ def collect_calls(body) -> List[Call]:
                     for child in arg_list.named_children
                     if child.type != "comment"
                 ]
-                calls.append(Call(fn.text.decode(), args, node.start_point[0] + 1))
+                calls.append(
+                    Call(
+                        fn.text.decode(),
+                        args,
+                        node.start_point[0] + 1,
+                        _guard_condition(node),
+                    )
+                )
         for child in node.children:
             visit(child)
 

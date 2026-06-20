@@ -72,7 +72,9 @@ s32 common_land_step(struct MarioState *m, u32 landAction) {
 s32 act_decelerating(struct MarioState *m) {
     u32 endAction = ACT_WALKING;
     set_mario_action(m, endAction, 0);
-    common_land_step(m, ACT_FREEFALL);
+    if (m->input & INPUT_A_PRESSED) {
+        common_land_step(m, ACT_FREEFALL);
+    }
     set_mario_action(m, x ? ACT_BRAKING : ACT_IDLE, 0);
     return FALSE;
 }
@@ -141,6 +143,21 @@ def test_fall_through_case_shares_handler(tmp_path: Path):
     # ACT_BRAKING falls through to ACT_TURNING_AROUND, so both run that handler.
     assert nodes["ACT_BRAKING"].handler == "act_turning_around"
     assert nodes["ACT_TURNING_AROUND"].handler == "act_turning_around"
+
+
+def test_guard_conditions_mined(tmp_path: Path):
+    parsed = parse_mario_actions(_fake_repo(tmp_path))
+    cond = {(c.action_name, c.target): c.condition for c in parsed.calls}
+    # The conditional transition in act_walking carries its enclosing if-guard.
+    assert cond[("ACT_WALKING", "ACT_DECELERATING")] == "x"
+    # The shared-helper transition (set_mario_action(ACT_IDLE)) is unguarded.
+    assert cond[("ACT_WALKING", "ACT_IDLE")] is None
+    # A forwarded data transition takes its guard from the *caller's* call site.
+    dt = {(d.action_name, d.to_action): d for d in parsed.data_transitions}
+    assert (
+        dt[("ACT_DECELERATING", "ACT_FREEFALL")].condition
+        == "m->input & INPUT_A_PRESSED"
+    )
 
 
 def test_reachability_and_setter_leaf(tmp_path: Path):

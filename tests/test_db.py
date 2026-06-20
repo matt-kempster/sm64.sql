@@ -300,6 +300,7 @@ def _everything():
                 seq=0,
                 call="set_mario_action",
                 target="ACT_JUMP",
+                condition="m->input & INPUT_A_PRESSED",
                 args="m, ACT_JUMP, 0",
                 args_json='["m", "ACT_JUMP", "0"]',
                 file="src/game/mario_actions_moving.c",
@@ -311,6 +312,7 @@ def _everything():
                 seq=1,
                 call="set_mario_action",
                 target="landAction",
+                condition=None,
                 args="m, landAction, 0",
                 args_json='["m", "landAction", "0"]',
                 file="src/game/mario_actions_moving.c",
@@ -322,6 +324,7 @@ def _everything():
                 action_name="ACT_JUMP",
                 to_action="ACT_WALKING",
                 source="endAction",
+                condition="m->vel[1] < 0.0f",
                 function="act_jump",
                 file="src/game/mario_actions_airborne.c",
                 line=456,
@@ -501,13 +504,20 @@ def test_write_to_db_round_trip():
     ).fetchall()
     assert residue == [("landAction", 1)]
 
-    # A runtime transition resolved to a literal action joins both endpoints.
+    # The mined trigger condition round-trips (and is NULL when unguarded).
+    conds = cur.execute(
+        "SELECT target, condition FROM mario_action_call ORDER BY seq"
+    ).fetchall()
+    assert conds == [("ACT_JUMP", "m->input & INPUT_A_PRESSED"), ("landAction", None)]
+
+    # A runtime transition resolved to a literal action joins both endpoints and
+    # carries its guard condition.
     data_t = cur.execute(
-        "SELECT t.action_name, t.to_action, a.group_name "
+        "SELECT t.action_name, t.to_action, t.condition, a.group_name "
         "FROM mario_action_data_transition t "
         "JOIN mario_action a ON t.to_action = a.action_name"
     ).fetchall()
-    assert data_t == [("ACT_JUMP", "ACT_WALKING", "MOVING")]
+    assert data_t == [("ACT_JUMP", "ACT_WALKING", "m->vel[1] < 0.0f", "MOVING")]
 
     # mario_all_transitions unions the literal and resolved edges.
     all_t = cur.execute(
