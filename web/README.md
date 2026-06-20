@@ -33,7 +33,9 @@ Actions**.
 - `app.js` — loads sql.js + the database, runs queries, renders results/schema
   (the schema tree shows each table's declared foreign keys as one-click joins)
 - `map.js` — the Map tab: a top-down/front/side scatter of a level's objects,
-  with an optional top-down level-map background (see `maps/`)
+  with an optional top-down level-map background (see `maps/`) and a toggleable
+  **Camera zones** overlay drawing the level's `camera_trigger` boxes (world-space
+  rectangles, rotated by their yaw in the top-down view) with a per-zone tooltip
 - `maps.js` / `maps/` — generated level-map backgrounds: one WebP per (level, area)
   plus a manifest (keyed level → area) of the world rectangle each image covers.
   Built by `tools/build_maps.py` from

@@ -184,4 +184,20 @@ SELECT dialog_name, text
 FROM dialog
 LIMIT 20;`,
   },
+  {
+    title: "Camera zones per level",
+    sql: `-- How many camera-trigger boxes each course defines (see them on the Map
+-- tab). Only nine courses steer the camera this way.
+SELECT level, COUNT(*) AS zones
+FROM camera_trigger
+WHERE level IS NOT NULL
+GROUP BY level
+ORDER BY zones DESC;`,
+  },
+  {
+    title: "Defined-but-unused camera table",
+    sql: `-- sCamBOB is defined in camera.c but no level wires it in, so its rows
+-- have a NULL level. The residue view surfaces dead tables like it.
+SELECT * FROM camera_trigger_unused;`,
+  },
 ];

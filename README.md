@@ -9,11 +9,11 @@ reads those source files and writes the equivalent rows into a SQLite database,
 so questions like "which objects appear only in act 1?", "what music plays in
 each course?", or "where does each painting warp to?" become one-line queries.
 
-It currently populates 26 tables (plus 14 derived views) spanning placed
+It currently populates 27 tables (plus 15 derived views) spanning placed
 objects, models and per-level model loads, behaviors and their command scripts
-and native C code, levels/courses/areas, warps, dialog, music, animations,
-sounds, the in-game course and star names, and the named constants behavior
-params use — see the
+and native C code, levels/courses/areas, warps, camera-trigger zones, dialog,
+music, animations, sounds, the in-game course and star names, and the named
+constants behavior params use — see the
 [schema](#schema) and [example queries](#example-queries) below.
 
 ## Install
@@ -86,6 +86,7 @@ Pages on every push to `master`. See [`web/README.md`](web/README.md).
 | `warp` | `levels/*/script.c` | `level`, `area` (0 = level-global), `node_id`, `dest_level`, `dest_area`, `dest_node`, `flags`, `is_painting` |
 | `instant_warp` | `levels/*/script.c` | `level`, `area`, `warp_index`, `dest_area`, `displace_x/y/z` |
 | `area` | `levels/*/script.c` | `level`, `area`, `geo`, `terrain_type`, `background_music`, `dialog` |
+| `camera_trigger` | `src/game/camera.c` + `levels/level_defines.h` | `level` (NULL = defined but unused), `camera_table`, `seq`, `area` (−1 = whole-level), `event`, `center_x/y/z`, `bounds_x/y/z`, `bounds_yaw`, `doc`, `file`, `line` |
 | `mario_animation` | `include/mario_animation_ids.h` | `anim_name`, `anim_id` |
 | `sound` | `include/sounds.h` | `sound_name`, `sound_id`, `bank` |
 | `constant` | `include/object_constants.h` + `src/game/level_update.h` | `name`, `value`, `source` (`warp_nodes`/`object_constants`) |
@@ -205,6 +206,23 @@ way `behavior_data_spawn` does: a forwarded land action
 branches). The genuinely runtime tail — struct-table landings
 (`landingAction->endAction`) and two-level forwards — stays visible in
 **`mario_action_call_unclassified`**, the completeness residue.
+
+### Camera trigger zones
+
+Nine courses steer the camera with *trigger zones* — world-space boxes that run a
+`CameraEvent` function (`cam_bob_tower`, `cam_thi_move_cam_through_tunnel`, …)
+while Mario is inside them. The `camera_trigger` table captures every box from
+the `struct CameraTrigger sCam*[]` tables in `camera.c`: its `center_x/y/z`,
+half-extent `bounds_x/y/z`, the `bounds_yaw` that rotates it about the vertical
+axis, and the table's own doc comment. The boxes share the object coordinate
+space, so the [web playground](#web-playground)'s Map tab overlays them on the
+level — the invisible camera logic, made visible.
+
+Each table is wired to its level by the camera-table column of `DEFINE_LEVEL` in
+`level_defines.h`; that resolves `camera_trigger.level` to the folder. One table,
+`sCamBOB`, is defined but no level references it (BOB's column is `_`), so it is
+dead code: its rows keep `level = NULL` and are surfaced by the
+**`camera_trigger_unused`** residue view rather than silently dropped.
 
 ### Behavior parameters
 
