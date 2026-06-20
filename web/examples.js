@@ -200,4 +200,29 @@ ORDER BY zones DESC;`,
 -- have a NULL level. The residue view surfaces dead tables like it.
 SELECT * FROM camera_trigger_unused;`,
   },
+  {
+    title: "EEPROM save-file layout",
+    sql: `-- The on-cartridge save struct, byte for byte (see the Save tab). Every
+-- member at its computed offset; struct-typed members (is_struct = 1) drill in.
+SELECT field_name, type_name, dims, printf('0x%02X', offset) AS offset, size
+FROM save_field
+WHERE struct_name = 'SaveFile'
+ORDER BY seq;`,
+  },
+  {
+    title: "Save flags, bit by bit",
+    sql: `-- The 32-bit progress word decoded. Gaps in the bit numbers (21-23,
+-- 29-31) are bits no SAVE_FLAG_* uses -- the unused-bit residue.
+SELECT bit, flag_name, printf('0x%08X', mask) AS mask
+FROM save_flag
+WHERE flag_group = 'flags'
+ORDER BY bit;`,
+  },
+  {
+    title: "Save layout covers every byte",
+    sql: `-- Completeness audit: each save struct's declared size vs the sum of its
+-- field sizes. padding_bytes is 0 everywhere, and SaveBuffer is exactly 0x200 --
+-- the layout provably tiles the whole EEPROM.
+SELECT * FROM save_struct_coverage;`,
+  },
 ];

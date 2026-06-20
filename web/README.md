@@ -56,6 +56,12 @@ Actions**.
   per-action dossier (id, flags, handler, transitions in/out with their trigger
   condition + source links), per-group legend toggles, and trigger-labelled arrows
   on the selected action's outgoing edges
+- `save.js` — the Save tab: a memory-map block diagram of the 0x200-byte EEPROM
+  save buffer, computed from `save_struct` / `save_field` / `save_flag`. A
+  SaveBuffer overview (4 files × 2 backup copies + 2 menu copies, each ending in
+  a checksum), a per-byte struct grid at true offsets (click a struct-typed field
+  to drill in), and the `flags` u32 exploded into its 32 bits (named
+  `SAVE_FLAG_*` coloured by category, with the unused-bit gaps shown)
 - `examples.js` — the curated example queries shown in the sidebar
 - `style.css` — styling
 - `sm64.db` — the generated database (gitignored)

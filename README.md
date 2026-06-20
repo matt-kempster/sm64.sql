@@ -9,7 +9,7 @@ reads those source files and writes the equivalent rows into a SQLite database,
 so questions like "which objects appear only in act 1?", "what music plays in
 each course?", or "where does each painting warp to?" become one-line queries.
 
-It currently populates 27 tables (plus 15 derived views) spanning placed
+It currently populates 30 tables (plus 16 derived views) spanning placed
 objects, models and per-level model loads, behaviors and their command scripts
 and native C code, levels/courses/areas, warps, camera-trigger zones, dialog,
 music, animations, sounds, the in-game course and star names, and the named
@@ -90,6 +90,9 @@ Pages on every push to `master`. See [`web/README.md`](web/README.md).
 | `mario_animation` | `include/mario_animation_ids.h` | `anim_name`, `anim_id` |
 | `sound` | `include/sounds.h` | `sound_name`, `sound_id`, `bank` |
 | `constant` | `include/object_constants.h` + `src/game/level_update.h` | `name`, `value`, `source` (`warp_nodes`/`object_constants`) |
+| `save_struct` | `src/game/save_file.h` | `struct_name`, `size`, `align`, `doc` |
+| `save_field` | `src/game/save_file.h` | `struct_name`, `seq`, `field_name`, `type_name`, `dims`, `count`, `elem_size`, `offset`, `size`, `is_struct`, `doc` |
+| `save_flag` | `src/game/save_file.h` | `flag_group`, `bit`, `flag_name`, `mask` |
 
 Names such as `MODEL_BOO`, `bhvGoomba`, and `macro_yellow_coin_2` are kept as
 the symbolic strings used in the source, so the tables join naturally on those
@@ -223,6 +226,33 @@ Each table is wired to its level by the camera-table column of `DEFINE_LEVEL` in
 `sCamBOB`, is defined but no level references it (BOB's column is `_`), so it is
 dead code: its rows keep `level = NULL` and are surfaced by the
 **`camera_trigger_unused`** residue view rather than silently dropped.
+
+### Save file layout
+
+Super Mario 64 saves to a 512-byte (`EEPROM_SIZE` = 0x200) EEPROM, and the
+on-cartridge image is one C struct: `struct SaveBuffer`. `save_layout.py` is a
+small struct-layout engine over `src/game/save_file.h` — it parses the structs,
+resolves their constants (`NUM_SAVE_FILES`, the `COURSE_COUNT` /
+`COURSE_STAGES_COUNT` enum counts) and the `sizeof`-based EEPROM `filler`,
+applies N64-ABI natural alignment, and computes the byte offset and size of
+every member. It emits the layout of every struct reachable from `SaveBuffer`
+into `save_struct` (sized structs) and `save_field` (each member at its
+`offset`, keeping the declared array shape in `dims` — `files[4][2]` is the four
+save files each stored twice as a backup — and `is_struct` so a struct-typed
+member points back into `save_struct`). EU-only fields behind
+`#ifdef VERSION_EU` are filtered out so the common US/JP layout is the one
+captured.
+
+The progress `flags` word is bit-packed; `save_flag` decodes the
+`SAVE_FLAG_*` `#define`s into one row per bit (`bit`, `mask`). The unused bits
+(21–23, 29–31) simply have no row — the gaps are the residue. The whole thing is
+checked the same way every other corpus is: the `save_struct_coverage` view
+reports each struct's declared `size` against the sum of its field sizes, and
+that `padding_bytes` slack is 0 for every struct — the layout provably tiles the
+EEPROM, with `SaveBuffer` summing to exactly 0x200. The
+[web playground](#web-playground)'s Save tab renders it as a memory-map block
+diagram (the file/backup overview, a per-byte struct grid, and the 32-bit flags
+ribbon).
 
 ### Behavior parameters
 
@@ -401,7 +431,7 @@ mypy                   # type-check
 
 ## Status & limitations
 
-26 tables (plus 14 views) are populated from a full current `n64decomp/sm64`
+30 tables (plus 16 views) are populated from a full current `n64decomp/sm64`
 checkout: placed objects, macro objects and special objects; models and
 per-level model loads, behaviors and their command scripts and native C code,
 macro/special presets; levels, courses and areas; warps and instant warps;
