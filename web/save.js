@@ -220,7 +220,16 @@
       const copy = i % copies;
       const label = isFiles ? `File ${"ABCD"[slot] || slot}` : "Menu";
       const sub = copies === 2 ? (copy === 0 ? "primary" : "backup") : `[${i}]`;
-      out.push(buildStruct(f.type, label, sub, f.offset + i * f.elemSize));
+      const node = buildStruct(f.type, label, sub, f.offset + i * f.elemSize);
+      if (copies === 2) {
+        node.copy = copy === 0 ? "primary" : "backup";
+        node.doc =
+          copy === 0
+            ? `Primary copy of ${label}.`
+            : `Backup copy of ${label} — every file is stored twice; if the ` +
+              `primary's checksum is bad the game restores from this mirror.`;
+      }
+      out.push(node);
     }
     return out;
   }
@@ -401,7 +410,10 @@
   function fillFor(node, selected) {
     const base = colorOf(node.colorKey);
     if (node.kind === "unused") return base;
-    if (node.children && !selected) return tint(base, 0.5);
+    if (selected) return base;
+    // A backup reads as a paler mirror of the primary beside it (plus the hatch
+    // overlay drawn in render); other containers get the usual lighter tint.
+    if (node.children) return tint(base, node.copy === "backup" ? 0.66 : 0.5);
     return base;
   }
 
@@ -424,6 +436,17 @@
     const svg = el("save-svg");
     const stage = el("save-stage");
     while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    // A faint diagonal hatch marks backup (mirror) copies, so the redundant
+    // second copy of each file/menu reads differently from the live primary.
+    const defs = mk("defs", {}, svg);
+    const pat = mk(
+      "pattern",
+      { id: "save-hatch", width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" },
+      defs
+    );
+    mk("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "#1d2330", "stroke-opacity": 0.16, "stroke-width": 2 }, pat);
+
     const W = Math.max(720, stage.clientWidth || 960);
     const innerW = W - 2 * PADX;
 
@@ -500,6 +523,12 @@
           { x: seg.x + 0.5, y: bar.top, width: Math.max(0, seg.w - 1), height: BARH, rx: 4, fill },
           g
         );
+        if (n.copy === "backup")
+          mk(
+            "rect",
+            { x: seg.x + 0.5, y: bar.top, width: Math.max(0, seg.w - 1), height: BARH, rx: 4, fill: "url(#save-hatch)" },
+            g
+          );
         addLabel(g, n, seg, bar.top, fill);
         const html = tipHtml(n);
         g.addEventListener("mousemove", (e) => showTip(html, e));
