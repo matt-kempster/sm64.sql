@@ -453,19 +453,51 @@
   // Returns the y at which the drill bars should start.
   function drawRuler(svg, innerW) {
     const X = (off) => PADX + (innerW * off) / root.size;
-    const TOP = 10, SEGH = 9, ROW = 26;
-    txt(svg, PADX, TOP + 9, "Where you are in the 512-byte EEPROM", "save-rulertitle");
-    let y = TOP + 18;
+    const TOP = 10, MMH = 26, SEGH = 9, ROW = 26;
+    txt(svg, PADX, TOP + 9, "The whole 512-byte EEPROM — click any block to jump there", "save-rulertitle");
+    let y = TOP + 16;
 
-    // the whole chip, with ticks every 0x80.
-    mk("rect", { x: PADX, y, width: innerW, height: SEGH, rx: 2, fill: "#e7eaf2" }, svg);
+    // Minimap: the entire chip, recursively tiled and coloured exactly like the
+    // bars (stopping once a block gets too thin to see), so the whole save reads
+    // as one colourful map. A "you are here" box marks the current drill, and
+    // clicking any block navigates straight to it.
+    const deepest = path[path.length - 1];
+    (function drawMini(node, chain) {
+      const x0 = X(node.abs || 0);
+      const w = X((node.abs || 0) + node.size) - x0;
+      const kids = node.children;
+      if (kids && kids.length && w / kids.length >= 3) {
+        kids.forEach((c) => drawMini(c, chain.concat(c)));
+        return;
+      }
+      const fill = colorOf(node.colorKey);
+      const g = mk("g", { class: "save-mini" }, svg);
+      mk("rect", { x: x0, y, width: Math.max(0.6, w - 0.4), height: MMH, fill }, g);
+      if (node.copy === "backup")
+        mk("rect", { x: x0, y, width: Math.max(0.6, w - 0.4), height: MMH, fill: "url(#save-hatch)" }, g);
+      const html = tipHtml(node);
+      g.addEventListener("mousemove", (e) => showTip(html, e));
+      g.addEventListener("mouseleave", hideTip);
+      g.addEventListener("click", () => {
+        // drill into a block with contents; for a leaf, land on its parent so
+        // the block is shown in context among its siblings rather than alone.
+        path = kids ? chain.slice() : chain.slice(0, -1);
+        render();
+      });
+    })(root, [root]);
+    if (deepest !== root) {
+      const ox = X(deepest.abs || 0);
+      const ow = Math.max(2, X((deepest.abs || 0) + deepest.size) - ox);
+      mk("rect", { x: ox - 1.5, y: y - 1.5, width: ow + 3, height: MMH + 3, rx: 3, class: "save-mini-here" }, svg);
+    }
+    y += MMH + 4;
+
+    // address ticks under the minimap
     [0, 0x80, 0x100, 0x180, 0x200].forEach((t, i) => {
-      const x = X(t);
-      mk("line", { x1: x, y1: y, x2: x, y2: y + SEGH, stroke: "#b9c0d0", "stroke-width": 1 }, svg);
-      const tk = txt(svg, x, y + SEGH + 9, addr(t), "save-rulertick");
+      const tk = txt(svg, X(t), y, addr(t), "save-rulertick");
       tk.setAttribute("text-anchor", i === 0 ? "start" : i === 4 ? "end" : "middle");
     });
-    y += ROW;
+    y += 12;
 
     // one track per drilled level: its slice highlighted on the same scale, so
     // each deeper level is visibly a sub-range (and a fraction) of the one above.

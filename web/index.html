@@ -231,10 +231,14 @@
           <div class="map-tooltip" id="save-tooltip"></div>
         </div>
         <p class="note">Super Mario 64 saves to a tiny 512-byte EEPROM, and the
-          whole thing is one nested <code>struct</code>. The <strong>ruler at the
-          top</strong> keeps you oriented: it maps every level you've opened onto
-          the whole chip, so you can see how big a region really is (a 4-byte word
-          vs. a 56-byte file) and how far you've zoomed in. Each bar below divides
+          whole thing is one nested <code>struct</code>. The <strong>colourful
+          minimap at the top</strong> is the entire chip at once — every block
+          coloured by type, so the four files (and their backups) show as a
+          repeating pattern — with a box marking where you are; <strong>click any
+          block to jump straight there</strong>. Below it, a ruler maps each level
+          you've opened onto the whole chip, so you can see how big a region
+          really is (a 4-byte word vs. a 56-byte file) and how far you've zoomed
+          in. Each bar below that divides
           its parent in byte order, sized to scale; <strong>click any tile to
           drill in</strong> — the level you open is appended below (ancestors stay
           put, a funnel links them), and the breadcrumb or an ancestor tile drills
