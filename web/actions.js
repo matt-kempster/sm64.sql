@@ -48,8 +48,9 @@
   let data = null; // { nodes, links, byId, adj }
   let sim = null;
   let sel = null; // selected node id, or null
-  let nodeSel, linkSel, labelSel;
+  let nodeSel, linkSel, labelSel, edgeLabelSel;
   let svgSel = null;
+  const short = (s, n = 30) => (s && s.length > n ? s.slice(0, n - 1) + "…" : s);
   let zoomBehavior = null;
   const enabled = {}; // group key -> shown
   GROUPS.forEach((g) => (enabled[g.key] = true));
@@ -74,6 +75,20 @@
     const links = rowsOf(
       "SELECT action_name AS src, to_action AS dst FROM mario_all_transitions"
     ).map((r) => ({ source: r.src, target: r.dst }));
+
+    // The trigger condition per edge (the enclosing if-guard), from the literal
+    // backbone and the resolved runtime transitions. One representative per edge.
+    const cond = new Map();
+    rowsOf(`
+      SELECT action_name AS s, target AS d, condition AS c FROM mario_action_call
+      WHERE target IN (SELECT action_name FROM mario_action) AND condition IS NOT NULL
+      UNION
+      SELECT action_name, to_action, condition FROM mario_action_data_transition
+      WHERE condition IS NOT NULL`).forEach((r) => {
+      const k = r.s + "\t" + r.d;
+      if (!cond.has(k)) cond.set(k, r.c);
+    });
+    links.forEach((l) => (l.condition = cond.get(l.source + "\t" + l.target) || null));
 
     // Degree (in + out) drives node size; a self-loop counts once.
     const deg = new Map(actionRows.map((r) => [r.action_name, 0]));
@@ -166,6 +181,16 @@
         : "none"
     );
     linkSel.style("display", (l) => (edgeVisible(l) ? null : "none"));
+    styleEdgeLabels();
+  }
+
+  // Edge labels show only for the SELECTED node's outgoing, visible edges.
+  function styleEdgeLabels() {
+    if (!edgeLabelSel) return;
+    edgeLabelSel.style("display", (l) => {
+      const sid = l.source.id || l.source;
+      return sel && sid === sel && edgeVisible(l) ? null : "none";
+    });
   }
 
   function render() {
@@ -224,6 +249,21 @@
       .attr("class", "graph-label")
       .attr("text-anchor", "middle")
       .text((n) => strip(n.id));
+
+    // Edge labels = the transition trigger (the guard condition). Only the
+    // selected node's OUTGOING edges are labelled -- out-degree maxes at 17, so
+    // this stays readable even on the in-degree hubs like IDLE / FREEFALL.
+    const gEdge = viewport.append("g");
+    edgeLabelSel = gEdge
+      .selectAll("text")
+      .data(data.links.filter((l) => l.condition))
+      .join("text")
+      .attr("class", "graph-edge-label")
+      .attr("text-anchor", "middle")
+      .text((l) => short(l.condition))
+      .on("mouseenter", (e, l) => showEdgeTip(e, l))
+      .on("mousemove", moveTip)
+      .on("mouseleave", hideTip);
 
     applyFocus(null);
     styleGroups();
@@ -288,6 +328,10 @@
       });
     nodeSel.attr("cx", (n) => n.x).attr("cy", (n) => n.y);
     labelSel.attr("x", (n) => n.x).attr("y", (n) => n.y - n.r - 3);
+    if (edgeLabelSel)
+      edgeLabelSel
+        .attr("x", (l) => (l.source.x + l.target.x) / 2)
+        .attr("y", (l) => (l.source.y + l.target.y) / 2);
   }
 
   function drag() {
@@ -337,6 +381,7 @@
     sel = id;
     nodeSel.classed("selected", (n) => n.id === id);
     applyFocus(id);
+    styleEdgeLabels();
     if (id) dossier(id);
     else el("act-dossier").hidden = true;
   }
@@ -346,6 +391,19 @@
   };
 
   // --- tooltip -------------------------------------------------------------
+
+  function showEdgeTip(e, l) {
+    const tip = el("act-tooltip");
+    const sid = l.source.id || l.source;
+    const tid = l.target.id || l.target;
+    tip.innerHTML =
+      `<strong>${escapeHtml(strip(sid))} → ${escapeHtml(strip(tid))}</strong>` +
+      (l.condition
+        ? `<br><span class="muted">if</span> ${escapeHtml(l.condition)}`
+        : "");
+    tip.style.display = "block";
+    moveTip(e);
+  }
 
   function showTip(e, n) {
     const tip = el("act-tooltip");
@@ -378,6 +436,8 @@
     `<span class="dossier-link" onclick="SM64ActionSelect('${sqlStr(
       id
     )}')">${escapeHtml(strip(id))}</span>`;
+  const guard = (c) =>
+    c ? ` <span class="cond">if ${escapeHtml(c)}</span>` : "";
 
   function listSection(title, items) {
     if (!items.length) return "";
@@ -395,33 +455,46 @@
     )[0] || {};
 
     // Outgoing: literal-at-site targets (one representative call site each),
-    // then runtime ones resolved to a literal action (with a source pill).
+    // then runtime ones resolved to a literal action (with a source pill). Each
+    // shows its trigger condition (the enclosing if-guard).
     const out = [];
     const outSeen = new Set();
     rowsOf(`
-      SELECT target d, file, line FROM mario_action_call
+      SELECT target d, condition c, file, line FROM mario_action_call
       WHERE action_name='${A}' AND target IN (SELECT action_name FROM mario_action)
       ORDER BY target, line`).forEach((r) => {
       if (outSeen.has(r.d)) return;
       outSeen.add(r.d);
-      out.push(goto(r.d) + src(r.file, r.line));
+      out.push(goto(r.d) + guard(r.c) + src(r.file, r.line));
     });
     rowsOf(`
-      SELECT to_action d, source, file, line FROM mario_action_data_transition
+      SELECT to_action d, source, condition c, file, line
+      FROM mario_action_data_transition
       WHERE action_name='${A}' ORDER BY to_action`).forEach((r) => {
       if (outSeen.has(r.d)) return;
       outSeen.add(r.d);
       out.push(
         goto(r.d) +
+          guard(r.c) +
           src(r.file, r.line) +
           ` <span class="pill">${escapeHtml(r.source)}</span>`
       );
     });
 
-    // Incoming: which actions can transition into this one (any origin).
+    // Incoming: which actions can transition into this one (any origin), each
+    // with the condition under which that source enters this action.
+    const incCond = new Map();
+    rowsOf(`
+      SELECT action_name s, condition c FROM mario_action_call
+      WHERE target='${A}' AND condition IS NOT NULL
+      UNION
+      SELECT action_name, condition FROM mario_action_data_transition
+      WHERE to_action='${A}' AND condition IS NOT NULL`).forEach((r) => {
+      if (!incCond.has(r.s)) incCond.set(r.s, r.c);
+    });
     const inc = rowsOf(
       `SELECT DISTINCT action_name s FROM mario_all_transitions WHERE to_action='${A}' ORDER BY action_name`
-    ).map((r) => goto(r.s));
+    ).map((r) => goto(r.s) + guard(incCond.get(r.s)));
 
     // Genuinely-unresolved transitions: a struct-table landing or a computed
     // target we cannot pin to a literal action -- shown honestly, not hidden.

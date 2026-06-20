@@ -716,6 +716,24 @@ table.heatmap .colhead:hover .rot { color: var(--blue); }
 line.graph-dim {
   stroke-opacity: 0.05;
 }
+/* Transition trigger labels on the Actions tab (shown for the selected node's
+   outgoing edges). Halo via paint-order so they read over the edges. */
+.graph-edge-label {
+  font-size: 8.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  fill: #495057;
+  pointer-events: all;
+  cursor: help;
+  paint-order: stroke;
+  stroke: var(--card);
+  stroke-width: 3px;
+}
+/* Inline trigger condition in the Actions dossier. */
+.graph-dossier .cond {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #1c7ed6;
+}
 
 .graph-dossier {
   position: absolute;
