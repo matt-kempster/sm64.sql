@@ -414,7 +414,7 @@ tbody tr:hover { background: #fbfaf4; }
 }
 .map-tooltip .muted { color: #b9c2d6; }
 
-/* ---------- save (EEPROM block diagram) ---------- */
+/* ---------- save (nested EEPROM layout, treemap-styled) ---------- */
 .save-wrap {
   flex: 1;
   display: flex;
@@ -429,8 +429,26 @@ tbody tr:hover { background: #fbfaf4; }
   align-items: center;
   gap: 18px;
   flex-wrap: wrap;
-  font-size: 13px;
 }
+.save-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.save-crumb {
+  appearance: none;
+  background: none;
+  border: none;
+  font: 600 14px var(--sans);
+  color: var(--blue);
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+.save-crumb:not(.current):hover { background: #eef4ff; }
+.save-crumb.current { color: var(--ink); cursor: default; }
+.save-sep { color: var(--muted); }
 .save-stage {
   position: relative;
   flex: 1;
@@ -442,57 +460,28 @@ tbody tr:hover { background: #fbfaf4; }
 }
 #save-svg { display: block; }
 
-/* section + field labels */
-.save-title { fill: var(--ink); font: 700 13px var(--mono); }
-.save-doc { fill: var(--muted); font: 12px var(--sans, inherit); }
-.save-grouplabel { fill: var(--muted); font: 600 11px var(--sans, inherit); }
-.save-ruler { fill: var(--muted); font: 11px var(--mono); text-anchor: end; }
-.save-label { fill: var(--ink); font: 11px var(--mono); }
-
-/* overview blocks */
-.save-block { cursor: pointer; }
-.save-block-rect { fill: #fff; stroke: var(--line); stroke-width: 1.5; }
-.save-block:hover .save-block-rect { stroke: #748ffc; }
-.save-block.sel .save-block-rect { fill: #eef2ff; stroke: #4263eb; stroke-width: 2; }
-.save-chk { fill: #ced4e6; opacity: 0.85; }
-.save-block-name { fill: var(--ink); font: 700 12px var(--mono); }
-.save-block-sub { fill: var(--muted); font: 10px var(--mono); }
-.save-block-off { fill: #9aa3b8; font: 10px var(--mono); }
-
-/* byte grid */
-.save-field { cursor: default; }
-.save-field.link { cursor: pointer; }
-.save-cell { stroke: rgba(0, 0, 0, 0.12); stroke-width: 0.75; fill-opacity: 0.82; }
-.save-field:hover .save-cell { fill-opacity: 1; stroke: rgba(0, 0, 0, 0.4); }
-.save-field-name {
-  fill: #1d2330;
+.save-bandlabel { fill: var(--muted); font: 600 11px var(--mono); }
+.save-seg { cursor: default; }
+.save-seg.link { cursor: pointer; }
+.save-seg rect { stroke: var(--paper); stroke-width: 1; transition: stroke 0.1s; }
+.save-seg.link:hover rect { stroke: var(--ink); stroke-width: 2; }
+.save-seg.sel rect { stroke: var(--blue); stroke-width: 2; }
+.save-seg.unused rect { stroke-dasharray: 2 2; stroke: #cdd2de; }
+.save-seg-name {
   font: 700 11px var(--mono);
+  text-anchor: middle;
   paint-order: stroke;
-  stroke: rgba(255, 255, 255, 0.85);
+  stroke: rgba(255, 255, 255, 0.5);
   stroke-width: 2.5px;
   stroke-linejoin: round;
   pointer-events: none;
 }
-
-/* flags ribbon */
-.save-bit { cursor: help; }
-.save-bit-rect { stroke: rgba(0, 0, 0, 0.18); stroke-width: 0.75; fill-opacity: 0.9; }
-.save-bit.unused .save-bit-rect {
-  fill: #eef0f5;
-  stroke: #d7dbe6;
-  stroke-dasharray: 2 2;
-}
-.save-bit:hover .save-bit-rect { fill-opacity: 1; stroke: rgba(0, 0, 0, 0.45); }
-.save-bit-num {
-  fill: #1d2330;
-  font: 700 11px var(--mono);
+.save-seg-sub {
+  fill: #5a6177;
+  font: 9px var(--mono);
   text-anchor: middle;
   pointer-events: none;
 }
-.save-bit-num.dim { fill: #aeb6c6; font-weight: 500; }
-.save-legend-sw { stroke: rgba(0, 0, 0, 0.15); }
-.save-legend-bit { fill: var(--muted); font: 11px var(--mono); text-anchor: end; }
-.save-legend-name { fill: var(--ink); font: 11px var(--mono); }
 
 /* ---------- heatmap ---------- */
 .heat-wrap {

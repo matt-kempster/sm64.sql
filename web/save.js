@@ -1,20 +1,19 @@
 "use strict";
 
 // ---------------------------------------------------------------------------
-// Save tab: a memory-map block diagram of the 0x200-byte EEPROM save buffer.
+// Save tab: the 0x200-byte EEPROM save buffer as a nested, drillable layout.
 //
-// Three stacked sections, all computed from save_struct / save_field / save_flag:
-//   1. EEPROM overview  -- the whole SaveBuffer: 4 files x 2 copies + 2 menu
-//      copies, drawn as labelled blocks (the redundancy/backup structure).
-//   2. Struct detail    -- the selected struct laid out one cell per byte at its
-//      true offset (16 bytes/row), fields coloured and sized to scale.
-//   3. Flags ribbon     -- the SaveFile.flags u32 exploded into its 32 bits: the
-//      named SAVE_FLAG_* bits plus the gaps where no flag is defined.
+// One consistent idiom throughout (the same rounded, tinted, byte-proportional
+// tiles as the Treemap tab): every level is a full-width bar whose tiles divide
+// it in offset order, sized to scale. Clicking a tile that has contents drills
+// in -- but append-only: the new level is appended below and the ancestors stay
+// visible, with a funnel connecting the opened tile to its expansion. A
+// breadcrumb (and re-clicking an ancestor tile) drills back up. Everything is a
+// container until it bottoms out: SaveBuffer -> files -> File A -> SaveFile ->
+// courseStars -> a single course's byte, or flags -> one of 32 bits.
 //
-// Clicking a block in the overview (or a struct-typed field in the detail grid)
-// selects which struct the lower sections describe. Defaults to SaveFile, the
-// interesting one. Nothing here is hand-placed: offsets, sizes and the bit gaps
-// all come straight from the database.
+// Nothing is hand-placed: the tree, every size and offset, and the bit gaps all
+// come from save_struct / save_field / save_flag.
 // ---------------------------------------------------------------------------
 
 (function () {
@@ -24,44 +23,46 @@
 
   let inited = false;
   let data = null; // { structs, fieldsBy, flagsBy }
-  let selected = "SaveFile";
+  let root = null; // the SaveBuffer hierarchy node
+  let path = []; // root chain of nodes currently drilled into
 
-  const COLS = 16; // bytes per row in the byte grid
-  const CELL = 22; // px per byte cell
-  const PAD = 18; // section padding
-  const RULER = 52; // left gutter for offset labels
+  // layout
+  const PADX = 16, PADTOP = 14, BAND = 18, BARH = 56, VGAP = 34;
 
-  // Field palette (skipping the flags accent, which is reserved). Padding/filler
-  // is always neutral grey; the bit-packed flags word gets the purple accent so
-  // it ties to the ribbon below.
+  // Same palette + tinting as the Treemap tab, so the two tabs read alike.
   const PALETTE = [
     "#4dabf7", "#69db7c", "#ffa94d", "#f783ac", "#38d9a9",
-    "#ffd43b", "#a9e34b", "#3bc9db", "#748ffc", "#ff8787",
+    "#ffd43b", "#a9e34b", "#3bc9db", "#748ffc", "#da77f2", "#ff8787",
   ];
-  const FLAGS_ACCENT = "#9775fa";
-  const PAD_FILL = "#c7cdda";
+  // Colour tracks a tile's "kind" (one stable scale across the whole diagram):
+  // C type for fields/elements, flag category for bits, plus greys for the
+  // structural and empty kinds.
+  const KIND_ORDER = [
+    "struct", "u32", "u16", "u8", "s16", "Vec3s",
+    "caps & keys", "doors", "lost-cap thieves", "secret stars", "world state",
+  ];
+  const scale = d3.scaleOrdinal(PALETTE).domain(KIND_ORDER);
+  const GREY = { padding: "#c7cdda", unused: "#eceef4" };
+  const colorOf = (kind) => GREY[kind] || scale(kind);
+  const tint = (hex, t) => d3.interpolateRgb(hex, "#ffffff")(t);
+  function textOn(bg) {
+    const c = d3.color(bg).rgb();
+    return (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255 > 0.62 ? "#1d2330" : "#fff";
+  }
 
-  // Flag categories -> colour, so the ribbon reads like a register diagram.
-  const FLAG_CATS = {
-    item: { color: "#ffd43b", label: "caps & keys" },
-    door: { color: "#4dabf7", label: "doors" },
-    cap: { color: "#ff8787", label: "lost-cap thieves" },
-    star: { color: "#69db7c", label: "secret stars" },
-    misc: { color: "#b197fc", label: "world state" },
-  };
   function flagCat(name) {
     const n = name.replace(/^SAVE_FLAG_/, "");
-    if (n.startsWith("HAVE_")) return "item";
-    if (n.startsWith("UNLOCKED_")) return "door";
-    if (n.startsWith("CAP_ON_")) return "cap";
-    if (n.startsWith("COLLECTED_")) return "star";
-    return "misc";
+    if (n.startsWith("HAVE_")) return "caps & keys";
+    if (n.startsWith("UNLOCKED_")) return "doors";
+    if (n.startsWith("CAP_ON_")) return "lost-cap thieves";
+    if (n.startsWith("COLLECTED_")) return "secret stars";
+    return "world state";
   }
   const stripFlag = (n) => n.replace(/^SAVE_FLAG_/, "");
-
   const escapeHtml = (s) =>
     String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-  const hex = (n) => "0x" + n.toString(16).toUpperCase().padStart(2, "0");
+  const hexb = (n) => "0x" + n.toString(16).toUpperCase().padStart(2, "0");
+  const sqlStr = (s) => String(s).replace(/'/g, "''");
 
   // --- tiny SVG helper -----------------------------------------------------
   function mk(tag, attrs, parent) {
@@ -70,8 +71,8 @@
     if (parent) parent.appendChild(node);
     return node;
   }
-  function text(parent, x, y, str, cls) {
-    const t = mk("text", { x, y, class: cls || "save-label" }, parent);
+  function txt(parent, x, y, str, cls) {
+    const t = mk("text", { x, y, class: cls }, parent);
     t.textContent = str;
     return t;
   }
@@ -99,12 +100,141 @@
       (fieldsBy[f.struct] = fieldsBy[f.struct] || []).push(f);
     });
     const flagsBy = {};
-    rows(
-      "SELECT flag_group, bit, flag_name, mask FROM save_flag ORDER BY bit"
-    ).forEach(([group, bit, name, mask]) => {
-      (flagsBy[group] = flagsBy[group] || []).push({ bit, name, mask });
-    });
+    rows("SELECT flag_group, bit, flag_name, mask FROM save_flag ORDER BY bit").forEach(
+      ([group, bit, name, mask]) => {
+        (flagsBy[group] = flagsBy[group] || []).push({ bit, name, mask });
+      }
+    );
     return { structs, fieldsBy, flagsBy };
+  }
+
+  // --- build the hierarchy -------------------------------------------------
+  // Each node: { label, sub, kind, colorKey, size, offset, doc, owner, query,
+  //              children:[]|null }. size is used only relative to siblings, so
+  //              bits (32 of them) just use 1 apiece.
+  function buildStruct(name, label, sub, offset) {
+    const st = data.structs[name];
+    const fields = data.fieldsBy[name] || [];
+    return {
+      label: label || name,
+      sub: sub || (label && label !== name ? name : null),
+      kind: "struct",
+      colorKey: "struct",
+      size: st ? st.size : fields.reduce((a, f) => a + f.size, 0),
+      offset: offset || 0,
+      doc: st ? st.doc : null,
+      owner: name,
+      children: fields.map((f) => buildField(f, name)),
+    };
+  }
+
+  function buildField(f, owner) {
+    const colorKey = f.isStruct ? "struct" : f.name === "filler" ? "padding" : f.type;
+    const base = {
+      label: f.name,
+      sub: f.type,
+      kind: "field",
+      colorKey,
+      size: f.size,
+      offset: f.offset,
+      doc: f.doc,
+      owner,
+      query: `-- ${owner}.${f.name}\nSELECT * FROM save_field WHERE struct_name = '${sqlStr(
+        owner
+      )}' AND field_name = '${sqlStr(f.name)}';`,
+      children: null,
+    };
+    if (data.flagsBy[f.name]) {
+      base.children = buildBits(data.flagsBy[f.name]);
+    } else if (f.isStruct && f.count === 1) {
+      base.children = buildStruct(f.type).children; // inline the sub-struct's fields
+    } else if (f.isStruct && f.count > 1) {
+      base.children = instances(f);
+    } else if (f.count > 1) {
+      base.children = elements(f, owner);
+    }
+    return base;
+  }
+
+  // Struct array -> one struct per element. files[4][2] reads as 4 save slots
+  // (A-D) each with a primary + backup copy; menuData[2] as two copies.
+  function instances(f) {
+    const dims = f.dims ? f.dims.split(",").map(Number) : [f.count];
+    const copies = dims.length > 1 ? dims[1] : dims[0];
+    const isFiles = f.name === "files";
+    const out = [];
+    for (let i = 0; i < f.count; i++) {
+      const slot = Math.floor(i / copies);
+      const copy = i % copies;
+      const label = isFiles ? `File ${"ABCD"[slot] || slot}` : "Menu";
+      const sub = copies === 2 ? (copy === 0 ? "primary" : "backup") : `[${i}]`;
+      out.push(buildStruct(f.type, label, sub, f.offset + i * f.elemSize));
+    }
+    return out;
+  }
+
+  // Primitive array -> one tile per element (a course's star/coin byte, etc.).
+  function elements(f, owner) {
+    const out = [];
+    for (let i = 0; i < f.count; i++) {
+      out.push({
+        label: `[${i}]`,
+        sub: f.type,
+        kind: "element",
+        colorKey: f.type,
+        size: f.elemSize,
+        offset: f.offset + i * f.elemSize,
+        doc: null,
+        owner,
+        query: `-- ${owner}.${f.name}[${i}]\nSELECT * FROM save_field WHERE struct_name = '${sqlStr(
+          owner
+        )}' AND field_name = '${sqlStr(f.name)}';`,
+        children: null,
+      });
+    }
+    return out;
+  }
+
+  // The flags u32 -> 32 bit tiles; bits with no SAVE_FLAG are the gaps.
+  function buildBits(flags) {
+    const byBit = {};
+    flags.forEach((fl) => (byBit[fl.bit] = fl));
+    const out = [];
+    for (let b = 0; b < 32; b++) {
+      const fl = byBit[b];
+      out.push(
+        fl
+          ? {
+              label: stripFlag(fl.name),
+              sub: `bit ${b}`,
+              kind: "bit",
+              colorKey: flagCat(fl.name),
+              size: 1,
+              offset: b,
+              doc: `mask 0x${fl.mask.toString(16).toUpperCase().padStart(8, "0")} · ${flagCat(
+                fl.name
+              )}`,
+              owner: null,
+              query: `-- ${fl.name}\nSELECT * FROM save_flag WHERE flag_name = '${sqlStr(
+                fl.name
+              )}';`,
+              children: null,
+            }
+          : {
+              label: "",
+              sub: `bit ${b}`,
+              kind: "unused",
+              colorKey: "unused",
+              size: 1,
+              offset: b,
+              doc: "no flag defined (unused bit)",
+              owner: null,
+              query: null,
+              children: null,
+            }
+      );
+    }
+    return out;
   }
 
   // --- tooltip -------------------------------------------------------------
@@ -119,227 +249,71 @@
   }
   const hideTip = () => (el("save-tooltip").style.display = "none");
 
-  function hoverable(node, html) {
-    node.addEventListener("mousemove", (e) => showTip(html, e));
-    node.addEventListener("mouseleave", hideTip);
-  }
-
-  // --- section 1: EEPROM overview -----------------------------------------
-  // Returns the y just below this section.
-  function drawOverview(svg, width, y0) {
-    const root = data.structs.SaveBuffer;
-    if (!root) return y0;
-    let y = y0 + PAD;
-    text(svg, PAD, y, `EEPROM — SaveBuffer · ${root.size} bytes (0x200)`, "save-title");
-    y += 14;
-
-    const fields = data.fieldsBy.SaveBuffer || [];
-    const BW = 104, BH = 50, GAP = 10;
-    let x = PAD;
-    const top = y + 8;
-
-    fields.forEach((f) => {
-      if (!f.isStruct) return;
-      const dims = f.dims ? f.dims.split(",").map(Number) : [f.count];
-      // files[4][2] -> 4 slots (columns) x 2 copies (rows); menuData[2] -> 1 x 2.
-      const slots = dims.length > 1 ? dims[0] : 1;
-      const copies = dims.length > 1 ? dims[1] : dims[0];
-      const groupLabel = f.name === "files" ? "Save files (4 × 2 backup)" : "Menu data (× 2)";
-      text(svg, x, top - 6, groupLabel, "save-grouplabel");
-      for (let s = 0; s < slots; s++) {
-        for (let c = 0; c < copies; c++) {
-          const idx = s * copies + c;
-          const bx = x + s * (BW + GAP);
-          const by = top + c * (BH + GAP);
-          const off = f.offset + idx * f.elemSize;
-          const sel = f.type === selected;
-          const g = mk("g", { class: "save-block" + (sel ? " sel" : "") }, svg);
-          mk("rect", { x: bx, y: by, width: BW, height: BH, rx: 4, class: "save-block-rect" }, g);
-          // a thin checksum tick at the block's tail (every struct ends in one)
-          mk("rect", { x: bx + BW - 7, y: by, width: 7, height: BH, rx: 0, class: "save-chk" }, g);
-          const slotName = f.name === "files" ? "ABCD"[s] : "menu";
-          const label = f.name === "files" ? `File ${slotName}` : "Menu";
-          text(svg, bx + 8, by + 19, label, "save-block-name");
-          text(svg, bx + 8, by + 34, c === 0 ? "primary" : "backup", "save-block-sub");
-          text(svg, bx + 8, by + 45, hex(off), "save-block-off");
-          hoverable(
-            g,
-            `<strong>${escapeHtml(f.type)}</strong> — ${label} ${c === 0 ? "primary" : "backup"}` +
-              `<br><span class="muted">@ ${hex(off)} · ${f.elemSize} bytes · ends in a 4-byte checksum</span>` +
-              `<br><span class="muted">click to lay out its bytes ↓</span>`
-          );
-          g.addEventListener("click", () => {
-            if (data.structs[f.type]) {
-              selected = f.type;
-              render();
-            }
-          });
-        }
-      }
-      x += slots * (BW + GAP) + 24;
-    });
-    return top + 2 * BH + GAP + PAD;
-  }
-
-  // --- byte-grid geometry --------------------------------------------------
-  // Split a [offset, offset+size) span into per-row segments of the 16-wide grid.
-  function segments(offset, size) {
-    const segs = [];
-    let b = offset;
-    const end = offset + size;
-    while (b < end) {
-      const row = Math.floor(b / COLS);
-      const col = b % COLS;
-      const take = Math.min(COLS - col, end - b);
-      segs.push({ row, col, len: take });
-      b += take;
-    }
-    return segs;
-  }
-
-  // --- section 2: struct byte grid ----------------------------------------
-  function drawDetail(svg, y0) {
-    const st = data.structs[selected];
-    const fields = data.fieldsBy[selected] || [];
-    if (!st) return y0;
-    let y = y0;
-    text(
-      svg, PAD, y,
-      `${st.name} · ${st.size} bytes (0x${st.size.toString(16).toUpperCase()})`,
-      "save-title"
+  function tipHtml(node) {
+    const head = node.sub ? `${node.label || "—"} <span class="muted">${escapeHtml(node.sub)}</span>` : node.label || "—";
+    const where =
+      node.kind === "bit" || node.kind === "unused"
+        ? `bit ${node.offset}`
+        : `@ ${hexb(node.offset)} · ${node.size} byte${node.size === 1 ? "" : "s"}`;
+    const action = node.children
+      ? "click to drill in ↓"
+      : node.query
+      ? "click to copy its query"
+      : "";
+    return (
+      `<strong>${head}</strong>` +
+      `<br><span class="muted">${escapeHtml(where)}</span>` +
+      (node.doc ? `<br>${escapeHtml(node.doc)}` : "") +
+      (action ? `<br><span class="muted">${action}</span>` : "")
     );
-    y += 6;
-    if (st.doc) {
-      const d = text(svg, PAD, y + 14, st.doc, "save-doc");
-      // crude truncation so a long note doesn't overflow
-      if (st.doc.length > 96) d.textContent = st.doc.slice(0, 95) + "…";
-      y += 12;
-    }
-    const gridY = y + 18;
-    const rows = Math.ceil(st.size / COLS);
+  }
 
-    // faint cell grid + offset ruler
-    for (let r = 0; r < rows; r++) {
-      text(svg, RULER - 10, gridY + r * CELL + 15, hex(r * COLS), "save-ruler");
-    }
-
-    let palette = 0;
-    fields.forEach((f) => {
-      let fill = PALETTE[palette++ % PALETTE.length];
-      if (f.name === "flags") fill = FLAGS_ACCENT;
-      if (f.name === "filler" || f.type === "filler") fill = PAD_FILL;
-      const isFlags = f.name === "flags";
-      const clickable = f.isStruct && data.structs[f.type];
-      const g = mk(
-        "g",
-        { class: "save-field" + (isFlags ? " flags" : "") + (clickable ? " link" : "") },
-        svg
-      );
-      const segs = segments(f.offset, f.size);
-      segs.forEach((seg) => {
-        const x = RULER + seg.col * CELL;
-        const yy = gridY + seg.row * CELL;
-        mk("rect", {
-          x: x + 1, y: yy + 1, width: seg.len * CELL - 2, height: CELL - 2, rx: 2,
-          fill, class: "save-cell",
-        }, g);
-      });
-      // label in the widest segment, if it fits
-      const wide = segs.reduce((a, b) => (b.len > a.len ? b : a), segs[0]);
-      const lx = RULER + wide.col * CELL + 4;
-      const ly = gridY + wide.row * CELL + 15;
-      const tag = f.count > 1 ? `${f.name}[${f.count}]` : f.name;
-      if (wide.len * CELL > tag.length * 6.2 + 6)
-        text(svg, lx, ly, tag, "save-field-name");
-      hoverable(
-        g,
-        `<strong>${escapeHtml(tag)}</strong> <span class="muted">${escapeHtml(f.type)}</span>` +
-          `<br><span class="muted">@ ${hex(f.offset)} · ${f.size} byte${f.size === 1 ? "" : "s"}` +
-          (f.count > 1 ? ` · ${f.count} × ${f.elemSize}` : "") +
-          `</span>` +
-          (f.doc ? `<br>${escapeHtml(f.doc)}` : "") +
-          (f.isStruct ? `<br><span class="muted">click to open ${escapeHtml(f.type)} ↓</span>` : "") +
-          (isFlags ? `<br><span class="muted">exploded into 32 bits below ↓</span>` : "")
-      );
-      if (f.isStruct && data.structs[f.type])
-        g.addEventListener("click", () => {
-          selected = f.type;
+  // --- breadcrumb ----------------------------------------------------------
+  function buildBreadcrumb() {
+    const bc = el("save-breadcrumb");
+    bc.innerHTML = "";
+    path.forEach((node, i) => {
+      if (i) {
+        const sep = document.createElement("span");
+        sep.className = "save-sep";
+        sep.textContent = "▸";
+        bc.appendChild(sep);
+      }
+      const last = i === path.length - 1;
+      const b = document.createElement("button");
+      b.className = "save-crumb" + (last ? " current" : "");
+      b.textContent = node.label + (node.sub && node.kind !== "field" && node.kind !== "struct" ? ` ${node.sub}` : "");
+      if (!last)
+        b.addEventListener("click", () => {
+          path = path.slice(0, i + 1);
           render();
         });
+      bc.appendChild(b);
     });
-    return gridY + rows * CELL + PAD;
   }
 
-  // --- section 3: flags ribbon --------------------------------------------
-  function drawRibbon(svg, width, y0) {
-    const fields = data.fieldsBy[selected] || [];
-    const flagField = fields.find((f) => data.flagsBy[f.name]);
-    if (!flagField) return y0;
-    const flags = data.flagsBy[flagField.name];
-    const byBit = {};
-    flags.forEach((f) => (byBit[f.bit] = f));
-    const NBITS = 32;
+  // --- fills ---------------------------------------------------------------
+  // Leaves are vivid; a container is a lighter tint (like the treemap frames),
+  // so "drillable" reads at a glance; the opened tile is shown full-strength.
+  function fillFor(node, selected) {
+    const base = colorOf(node.colorKey);
+    if (node.kind === "unused") return base;
+    if (node.children && !selected) return tint(base, 0.5);
+    return base;
+  }
 
-    let y = y0;
-    text(
-      svg, PAD, y,
-      `${flagField.name} · u32 @ ${hex(flagField.offset)} · 32 bits`,
-      "save-title"
-    );
-    y += 6;
-    text(
-      svg, PAD, y + 13,
-      "Each set bit is one piece of progress. Empty cells are bits no flag uses.",
-      "save-doc"
-    );
-    const top = y + 26;
-
-    // a strip of 32 cells, bit 0 on the left
-    const stripW = width - 2 * PAD;
-    const bw = Math.min(40, stripW / NBITS);
-    for (let bit = 0; bit < NBITS; bit++) {
-      const x = PAD + bit * bw;
-      const fl = byBit[bit];
-      const cat = fl ? flagCat(fl.name) : null;
-      const fill = fl ? FLAG_CATS[cat].color : "none";
-      const g = mk("g", { class: "save-bit" + (fl ? "" : " unused") }, svg);
-      mk("rect", { x, y: top, width: bw - 2, height: 30, rx: 2, fill, class: "save-bit-rect" }, g);
-      text(svg, x + (bw - 2) / 2, top + 19, String(bit), fl ? "save-bit-num" : "save-bit-num dim");
-      if (fl)
-        hoverable(
-          g,
-          `<strong>${escapeHtml(stripFlag(fl.name))}</strong>` +
-            `<br><span class="muted">bit ${fl.bit} · mask 0x${fl.mask
-              .toString(16)
-              .toUpperCase()
-              .padStart(8, "0")} · ${FLAG_CATS[cat].label}</span>`
-        );
-      else hoverable(g, `<span class="muted">bit ${bit} — unused</span>`);
-    }
-    let yy = top + 44;
-    text(svg, PAD, yy, `${flags.length} named bits · ${NBITS - flags.length} unused`, "save-grouplabel");
-    yy += 10;
-
-    // legend: named bits grouped by category, in columns
-    const COLW = 232;
-    const perCol = Math.ceil(flags.length / Math.max(1, Math.floor((width - 2 * PAD) / COLW)));
-    let i = 0;
-    const ordered = flags.slice().sort((a, b) => {
-      const ca = flagCat(a.name), cb = flagCat(b.name);
-      return ca === cb ? a.bit - b.bit : ca.localeCompare(cb);
-    });
-    ordered.forEach((fl) => {
-      const col = Math.floor(i / perCol);
-      const row = i % perCol;
-      const x = PAD + col * COLW;
-      const ly = yy + 12 + row * 18;
-      const cat = flagCat(fl.name);
-      mk("rect", { x, y: ly - 9, width: 11, height: 11, rx: 2, fill: FLAG_CATS[cat].color, class: "save-legend-sw" }, svg);
-      text(svg, x + 17, ly, `${fl.bit}`, "save-legend-bit");
-      text(svg, x + 36, ly, stripFlag(fl.name), "save-legend-name");
-      i++;
-    });
-    return yy + 12 + perCol * 18 + PAD;
+  function describe(node) {
+    const c = node.children || [];
+    if (node === root) return `${node.label} · ${node.size} bytes (0x200)`;
+    const kid = c[0] ? c[0].kind : null;
+    if (kid === "bit") return `${node.label} · 32 bits @ ${hexb(node.offset)}`;
+    if (kid === "element") return `${node.label}[${c.length}] · ${c.length} × ${c[0].sub}`;
+    if (kid === "struct") return `${node.label} · ${c.length} × ${node.sub}`;
+    // struct fields (a file/menu instance, or an inline sub-struct like signature):
+    // name the struct the fields actually belong to (the children's owner).
+    const owner = c[0] ? c[0].owner : node.owner;
+    const head = node.kind === "struct" && node.sub ? `${node.label} ${node.sub}` : node.label;
+    return `${head} · ${owner} fields`;
   }
 
   // --- render --------------------------------------------------------------
@@ -347,22 +321,118 @@
     const svg = el("save-svg");
     const stage = el("save-stage");
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    const width = Math.max(720, stage.clientWidth || 960);
+    const W = Math.max(720, stage.clientWidth || 960);
+    const innerW = W - 2 * PADX;
 
-    let y = drawOverview(svg, width, 0);
-    y = drawDetail(svg, y);
-    y = drawRibbon(svg, width, y);
+    buildBreadcrumb();
 
-    svg.setAttribute("width", width);
-    svg.setAttribute("height", Math.ceil(y));
-    svg.setAttribute("viewBox", `0 0 ${width} ${Math.ceil(y)}`);
+    // 1) lay out every bar (geometry only) so connectors can be drawn behind.
+    const bars = [];
+    let y = PADTOP;
+    for (let k = 0; k < path.length; k++) {
+      const node = path[k];
+      const kids = node.children || [];
+      const top = y + BAND;
+      const total = Math.max(1, kids.reduce((a, c) => a + c.size, 0));
+      let x = PADX;
+      const segs = kids.map((c) => {
+        const w = (innerW * c.size) / total;
+        const seg = { node: c, x, w, selected: path[k + 1] === c };
+        x += w;
+        return seg;
+      });
+      bars.push({ node, bandY: y + 12, top, segs, sel: segs.find((s) => s.selected) });
+      y = top + BARH + VGAP;
+    }
+    const height = y - VGAP + PADTOP;
 
-    const st = data.structs[selected];
-    const buf = data.structs.SaveBuffer;
+    // 2) connectors (funnels) from an opened tile to the bar below it.
+    for (let k = 0; k < bars.length - 1; k++) {
+      const sel = bars[k].sel;
+      if (!sel) continue;
+      const yTop = bars[k].top + BARH;
+      const yBot = bars[k + 1].top;
+      const fill = colorOf(sel.node.colorKey);
+      mk(
+        "path",
+        {
+          d: `M${sel.x},${yTop} L${sel.x + sel.w},${yTop} L${PADX + innerW},${yBot} L${PADX},${yBot} Z`,
+          fill,
+          "fill-opacity": 0.1,
+          stroke: fill,
+          "stroke-opacity": 0.35,
+          "stroke-width": 1,
+        },
+        svg
+      );
+    }
+
+    // 3) the bars themselves.
+    bars.forEach((bar) => {
+      txt(svg, PADX, bar.bandY, describe(bar.node), "save-bandlabel");
+      bar.segs.forEach((seg) => {
+        const n = seg.node;
+        const fill = fillFor(n, seg.selected);
+        const drill = !!n.children;
+        const g = mk(
+          "g",
+          {
+            class:
+              "save-seg" +
+              (seg.selected ? " sel" : "") +
+              (drill || n.query ? " link" : "") +
+              (n.kind === "unused" ? " unused" : ""),
+          },
+          svg
+        );
+        mk(
+          "rect",
+          { x: seg.x + 0.5, y: bar.top, width: Math.max(0, seg.w - 1), height: BARH, rx: 4, fill },
+          g
+        );
+        // labels, if they fit
+        const fg = textOn(fill);
+        const name = n.label;
+        if (name && seg.w > name.length * 6.1 + 8) {
+          const nm = txt(
+            svg,
+            seg.x + seg.w / 2,
+            bar.top + (n.sub && seg.w > 40 ? 24 : BARH / 2 + 4),
+            name,
+            "save-seg-name"
+          );
+          nm.setAttribute("fill", fg);
+        }
+        if (n.sub && seg.w > 44) {
+          const subt = txt(svg, seg.x + seg.w / 2, bar.top + 39, n.sub, "save-seg-sub");
+          subt.setAttribute("fill", fg === "#fff" ? "rgba(255,255,255,0.8)" : "#5a6177");
+        } else if (!name && seg.w > 14) {
+          // unused bit: show its index so the gaps are still readable
+          txt(svg, seg.x + seg.w / 2, bar.top + BARH / 2 + 4, String(n.offset), "save-seg-sub");
+        }
+        const html = tipHtml(n);
+        g.addEventListener("mousemove", (e) => showTip(html, e));
+        g.addEventListener("mouseleave", hideTip);
+        g.addEventListener("click", () => onPick(bar, seg));
+      });
+    });
+
+    svg.setAttribute("width", W);
+    svg.setAttribute("height", Math.ceil(height));
+    svg.setAttribute("viewBox", `0 0 ${W} ${Math.ceil(height)}`);
     el("save-status").textContent =
-      st && buf
-        ? `${selected} · ${st.size} bytes · whole EEPROM = ${buf.size} bytes`
-        : "";
+      `${path[path.length - 1].label} · whole EEPROM = ${root.size} bytes`;
+  }
+
+  function onPick(bar, seg) {
+    const n = seg.node;
+    const depth = path.indexOf(bar.node);
+    if (n.children) {
+      path = path.slice(0, depth + 1).concat(n); // append-only drill
+      render();
+    } else if (n.query) {
+      window.sm64CopyQuery(n.query);
+    }
   }
 
   function ensureInit() {
@@ -377,12 +447,26 @@
     });
   }
 
+  // Default drill: SaveBuffer -> files -> File A (primary), so the SaveFile
+  // struct (with flags + courseStars to drill) is on screen immediately.
+  function defaultPath() {
+    const p = [root];
+    const files = (root.children || []).find((c) => c.label === "files");
+    if (files && files.children && files.children.length) {
+      p.push(files, files.children[0]);
+    }
+    return p;
+  }
+
   window.SM64Save = {
     onShow() {
       ensureInit();
       if (!data) {
         try {
           data = load();
+          if (!data.structs.SaveBuffer) throw new Error("no SaveBuffer");
+          root = buildStruct("SaveBuffer");
+          path = defaultPath();
         } catch (err) {
           el("save-status").textContent = "Save layout tables not in this database.";
           console.error(err);
