@@ -48,6 +48,8 @@ const m = {
   plane: () => document.getElementById("map-plane"),
   bg: () => document.getElementById("map-bg"),
   bgLabel: () => document.getElementById("map-bg-label"),
+  cam: () => document.getElementById("map-cam"),
+  camLabel: () => document.getElementById("map-cam-label"),
   legend: () => document.getElementById("map-legend"),
   status: () => document.getElementById("map-status"),
   stage: () => document.getElementById("map-stage"),
@@ -110,6 +112,26 @@ function queryPoints(level) {
   return pts;
 }
 
+const CAM_SQL = `
+  SELECT area, event, center_x, center_y, center_z,
+         bounds_x, bounds_y, bounds_z, bounds_yaw, doc, file, line
+  FROM camera_trigger WHERE level = $lvl AND bounds_x > 0`;
+
+// Camera-trigger zones for a level, or [] if the table is absent (e.g. an older
+// database). Wrapped so the Map tab still works against a db without it.
+function queryCamTriggers(level) {
+  try {
+    const stmt = currentDb().prepare(CAM_SQL);
+    stmt.bind({ $lvl: level });
+    const rows = [];
+    while (stmt.step()) rows.push(stmt.getAsObject());
+    stmt.free();
+    return rows;
+  } catch (e) {
+    return [];
+  }
+}
+
 function buildLegend(counts) {
   const legend = m.legend();
   legend.innerHTML = "";
@@ -125,6 +147,70 @@ function buildLegend(counts) {
       render(); // cheap; re-reads the current dropdown selection
     });
     legend.appendChild(item);
+  });
+}
+
+// Which world axes / half-extents a camera box projects onto in each plane, and
+// the yaw to apply. bounds_yaw rotates the box about the vertical (Y) axis, so
+// it only orients the box in the top-down x/z view; the height views draw the
+// axis-aligned silhouette.
+function camFields(t, plane) {
+  if (plane.h === "x" && plane.v === "z")
+    return { hc: t.center_x, vc: t.center_z, hh: t.bounds_x, vh: t.bounds_z, yaw: t.bounds_yaw };
+  if (plane.h === "x" && plane.v === "y")
+    return { hc: t.center_x, vc: t.center_y, hh: t.bounds_x, vh: t.bounds_y, yaw: 0 };
+  return { hc: t.center_z, vc: t.center_y, hh: t.bounds_z, vh: t.bounds_y, yaw: 0 };
+}
+
+function drawCamZones(svg, triggers, plane, sx, sy, scale) {
+  const tip = m.tip();
+  triggers.forEach((t) => {
+    const f = camFields(t, plane);
+    if (!(f.hh > 0 && f.vh > 0)) return; // degenerate in this projection
+    const cxs = sx(f.hc);
+    const cys = sy(f.vc);
+    const w = f.hh * 2 * scale;
+    const h = f.vh * 2 * scale;
+
+    const g = document.createElementNS(SVG_NS, "g");
+    g.setAttribute("class", "cam-zone-g");
+    const deg = (f.yaw / 65536) * 360; // s16 angle: 0x10000 == 360 degrees
+    if (deg)
+      g.setAttribute(
+        "transform",
+        `rotate(${deg.toFixed(2)} ${cxs.toFixed(1)} ${cys.toFixed(1)})`
+      );
+
+    const rect = document.createElementNS(SVG_NS, "rect");
+    rect.setAttribute("x", (cxs - w / 2).toFixed(1));
+    rect.setAttribute("y", (cys - h / 2).toFixed(1));
+    rect.setAttribute("width", w.toFixed(1));
+    rect.setAttribute("height", h.toFixed(1));
+    rect.setAttribute("class", "cam-zone");
+    g.appendChild(rect);
+
+    const label = document.createElementNS(SVG_NS, "text");
+    label.setAttribute("x", cxs.toFixed(1));
+    label.setAttribute("y", cys.toFixed(1));
+    label.setAttribute("class", "cam-zone-label");
+    label.textContent = t.event.replace(/^cam_/, "");
+    g.appendChild(label);
+
+    g.addEventListener("mouseenter", (e) => {
+      tip.innerHTML =
+        `<strong>${t.event}</strong><br>` +
+        `<span class="muted">camera zone</span> · area ${t.area}` +
+        (t.doc ? `<br>${t.doc}` : "") +
+        `<br>center ${t.center_x}, ${t.center_y}, ${t.center_z}` +
+        `<br>bounds ±${t.bounds_x}, ±${t.bounds_y}, ±${t.bounds_z}` +
+        (t.bounds_yaw ? ` · yaw ${t.bounds_yaw}` : "");
+      tip.style.display = "block";
+      const r = m.stage().getBoundingClientRect();
+      tip.style.left = e.clientX - r.left + 12 + "px";
+      tip.style.top = e.clientY - r.top + 12 + "px";
+    });
+    g.addEventListener("mouseleave", () => (tip.style.display = "none"));
+    svg.appendChild(g);
   });
 }
 
@@ -155,6 +241,15 @@ function render() {
   m.bg().disabled = !mapInfo;
   m.bgLabel().classList.toggle("disabled", !mapInfo);
   const useBg = !!mapInfo && m.bg().checked;
+
+  // Camera-trigger zones for this level, filtered to the selected area (an area
+  // of -1 is a whole-level default that applies to every area).
+  const camTriggers = queryCamTriggers(level).filter(
+    (t) => areaSel === "all" || String(t.area) === areaSel || t.area === -1
+  );
+  m.cam().disabled = !camTriggers.length;
+  m.camLabel().classList.toggle("disabled", !camTriggers.length);
+  const showCam = camTriggers.length > 0 && m.cam().checked;
 
   // The height axis (y) reads naturally pointing up; the top-down z axis is
   // drawn north-up (+z downward) to match the level-map images.
@@ -217,6 +312,13 @@ function render() {
     svg.appendChild(img);
   }
 
+  // Camera zones sit above the level image but below the object dots.
+  if (showCam) {
+    drawCamZones(svg, camTriggers, plane, sx, sy, scale);
+    const n = camTriggers.length;
+    m.status().textContent += ` · ${n} camera zone${n === 1 ? "" : "s"}`;
+  }
+
   if (!pts.length) return;
 
   const colorOf = {};
@@ -268,6 +370,7 @@ function ensureInit() {
   m.area().addEventListener("change", render);
   m.plane().addEventListener("change", render);
   m.bg().addEventListener("change", render);
+  m.cam().addEventListener("change", render);
 
   let resizeTimer = null;
   window.addEventListener("resize", () => {

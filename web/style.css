@@ -343,6 +343,28 @@ tbody tr:hover { background: #fbfaf4; }
 .map-bg-toggle.disabled { opacity: 0.4; cursor: not-allowed; }
 .map-bg-toggle.disabled input { cursor: not-allowed; }
 #map-svg image { image-rendering: auto; }
+
+/* Camera-trigger zones overlaid on the Map tab. */
+.cam-zone-g { cursor: help; }
+.cam-zone {
+  fill: #7c3aed;
+  fill-opacity: 0.1;
+  stroke: #7c3aed;
+  stroke-width: 1.5;
+  stroke-opacity: 0.9;
+}
+.cam-zone-g:hover .cam-zone { fill-opacity: 0.22; }
+.cam-zone-label {
+  fill: #5b21b6;
+  font: 600 9px ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
 .legend { display: flex; gap: 6px; }
 .legend-item {
   display: flex;

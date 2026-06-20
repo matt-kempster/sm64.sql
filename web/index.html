@@ -79,6 +79,9 @@
           <label class="map-bg-toggle" id="map-bg-label">
             <input type="checkbox" id="map-bg" checked> Level map
           </label>
+          <label class="map-bg-toggle" id="map-cam-label">
+            <input type="checkbox" id="map-cam" checked> Camera zones
+          </label>
           <div class="legend" id="map-legend"></div>
           <span class="status" id="map-status"></span>
         </div>
@@ -90,7 +93,11 @@
           map, or <em>All areas</em> to overlay them. Hover a dot for details. The top-down
           <strong>Level map</strong> background uses per-area level images from
           <a href="https://github.com/SM64-TAS-ABC/STROOP" target="_blank" rel="noopener">STROOP</a>
-          (MIT) registered to world coordinates.</p>
+          (MIT) registered to world coordinates.
+          <strong>Camera zones</strong> overlays the level's <code>CameraTrigger</code> boxes from
+          <code>camera.c</code> — the invisible volumes that change the camera's behaviour while
+          Mario is inside (hover a box for its event function and the decomp's own note). Only nine
+          courses define them; the boxes have real height, so they show in the side views too.</p>
       </div>
     </section>
 
