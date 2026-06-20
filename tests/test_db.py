@@ -23,6 +23,7 @@ from sm64_sql.mario_animation import SM64MarioAnimation
 from sm64_sql.model import SM64Model
 from sm64_sql.model_load import SM64ModelLoad
 from sm64_sql.object import SM64Object
+from sm64_sql.save_layout import SM64SaveField, SM64SaveFlag, SM64SaveStruct
 from sm64_sql.sequence import SM64Sequence
 from sm64_sql.sound import SM64Sound
 from sm64_sql.special import SM64SpecialObject, SM64SpecialPreset
@@ -368,6 +369,48 @@ def _everything():
                 line=6300,
             ),
         ],
+        sm64_save_structs=[
+            SM64SaveStruct(struct_name="SaveBuffer", size=0x200, align=4, doc=None),
+            SM64SaveStruct(struct_name="SaveFile", size=56, align=4, doc=None),
+        ],
+        sm64_save_fields=[
+            # A struct-typed member that drills into another save_struct...
+            SM64SaveField(
+                struct_name="SaveBuffer",
+                seq=0,
+                field_name="files",
+                type_name="SaveFile",
+                dims="4,2",
+                count=8,
+                elem_size=56,
+                offset=0,
+                size=448,
+                is_struct=True,
+                doc="Four save files, each with a backup copy.",
+            ),
+            # ...and a bit-packed scalar member, exploded by save_flag below.
+            SM64SaveField(
+                struct_name="SaveFile",
+                seq=0,
+                field_name="flags",
+                type_name="u32",
+                dims="",
+                count=1,
+                elem_size=4,
+                offset=8,
+                size=4,
+                is_struct=False,
+                doc=None,
+            ),
+        ],
+        sm64_save_flags=[
+            SM64SaveFlag(
+                flag_group="flags",
+                bit=1,
+                flag_name="SAVE_FLAG_HAVE_WING_CAP",
+                mask=0x2,
+            ),
+        ],
     )
 
 
@@ -575,4 +618,25 @@ def test_write_to_db_round_trip():
     # not silently dropped.
     unused = cur.execute("SELECT camera_table, n FROM camera_trigger_unused").fetchall()
     assert unused == [("sCamUnused", 1)]
+
+    # A struct-typed save field drills into the struct it names (is_struct = 1),
+    # and a bit-packed field explodes into its save_flag bits.
+    drill = cur.execute(
+        "SELECT f.field_name, f.dims, s.size "
+        "FROM save_field f JOIN save_struct s ON f.type_name = s.struct_name "
+        "WHERE f.is_struct = 1"
+    ).fetchone()
+    assert drill == ("files", "4,2", 56)
+    flag = cur.execute(
+        "SELECT flag_group, bit, flag_name FROM save_flag WHERE bit = 1"
+    ).fetchone()
+    assert flag == ("flags", 1, "SAVE_FLAG_HAVE_WING_CAP")
+
+    # Completeness audit: declared size minus the summed field sizes. In this toy
+    # fixture SaveBuffer has only the one 448-byte field, so 0x200 - 448 = 64 is
+    # "unaccounted" -- against the real decomp this column is 0 for every struct.
+    coverage = cur.execute(
+        "SELECT padding_bytes FROM save_struct_coverage WHERE struct_name = 'SaveBuffer'"
+    ).fetchone()
+    assert coverage == (0x200 - 448,)
     conn.close()

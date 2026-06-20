@@ -30,6 +30,12 @@ from sm64_sql.model import SM64Model, parse_model_ids
 from sm64_sql.model_load import SM64ModelLoad, parse_model_loads
 from sm64_sql.object import SM64Object, try_parse_object
 from sm64_sql.parse_utils import extract_macro_args, parse_c_enum
+from sm64_sql.save_layout import (
+    SM64SaveField,
+    SM64SaveFlag,
+    SM64SaveStruct,
+    parse_save_layout,
+)
 from sm64_sql.sequence import SM64Sequence, parse_sequences
 from sm64_sql.sound import SM64Sound, parse_sounds
 from sm64_sql.special import (
@@ -70,6 +76,9 @@ class SM64Everything:
     sm64_mario_action_calls: List[SM64MarioActionCall]
     sm64_mario_action_data_transitions: List[SM64MarioActionDataTransition]
     sm64_camera_triggers: List[SM64CameraTrigger]
+    sm64_save_structs: List[SM64SaveStruct]
+    sm64_save_fields: List[SM64SaveField]
+    sm64_save_flags: List[SM64SaveFlag]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -108,6 +117,9 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
         "sm64_mario_action_data_transitions",
     ),
     ("camera_trigger", SM64CameraTrigger, "sm64_camera_triggers"),
+    ("save_struct", SM64SaveStruct, "sm64_save_structs"),
+    ("save_field", SM64SaveField, "sm64_save_fields"),
+    ("save_flag", SM64SaveFlag, "sm64_save_flags"),
 ]
 
 
@@ -260,6 +272,16 @@ TABLE_KEYS: Dict[str, TableKeys] = {
     # level is the folder that wires the table in, NULL for a defined-but-unused
     # table (sCamBOB); a NULL FK is simply not enforced, which is what we want.
     "camera_trigger": TableKeys(foreign_keys=(_fk("level", "level", "folder"),)),
+    # ---- the EEPROM save-file layout (rendered as a block diagram) ----
+    # save_field places every member of every struct; a member whose type is
+    # itself a save struct (is_struct = 1) points back into save_struct, so the
+    # diagram can drill SaveBuffer -> SaveFile -> SaveBlockSignature. type_name is
+    # NOT a declared FK because most fields are primitives (u8/u32), which have no
+    # save_struct row; the is_struct flag marks the ones that do resolve.
+    "save_struct": TableKeys(primary_key=("struct_name",)),
+    "save_field": TableKeys(
+        foreign_keys=(_fk("struct_name", "save_struct", "struct_name"),)
+    ),
 }
 
 
@@ -527,6 +549,25 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         ORDER BY n DESC, camera_table
         """,
     ),
+    # ----- the EEPROM save-file layout (save_struct / save_field) -----
+    # Completeness audit: the diagram is only correct if every struct's members
+    # tile it with no unexplained bytes. This view reports, per struct, the
+    # declared size against the summed field sizes; padding_bytes is the slack
+    # (here always 0 -- even the EEPROM filler is an explicit field, not implicit
+    # padding -- so any nonzero row would flag a member the parser missed).
+    (
+        "save_struct_coverage",
+        """
+        CREATE VIEW save_struct_coverage AS
+        SELECT s.struct_name, s.size,
+               COALESCE(SUM(f.size), 0) AS fields_size,
+               s.size - COALESCE(SUM(f.size), 0) AS padding_bytes
+        FROM save_struct s
+        LEFT JOIN save_field f ON f.struct_name = s.struct_name
+        GROUP BY s.struct_name, s.size
+        ORDER BY s.struct_name
+        """,
+    ),
 ]
 
 
@@ -749,6 +790,13 @@ def parse_repo(repo: Path) -> SM64Everything:
     # while Mario is inside them. Overlaid on the Map tab. The defined-but-unused
     # sCamBOB table is captured too (its rows resolve to level = NULL).
     sm64_camera_triggers = parse_camera_triggers(repo)
+    # The EEPROM save-file layout: every struct that makes up the on-cartridge
+    # save buffer, sized under the N64 ABI, plus the bit decode of the flags word.
+    # Rendered as a memory-map block diagram (the Save tab).
+    parsed_save = parse_save_layout(repo)
+    sm64_save_structs = parsed_save.structs
+    sm64_save_fields = parsed_save.fields
+    sm64_save_flags = parsed_save.flags
     sm64_mario_animations = parse_mario_animations(
         repo / "include" / "mario_animation_ids.h"
     )
@@ -792,4 +840,7 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_mario_action_calls=sm64_mario_action_calls,
         sm64_mario_action_data_transitions=sm64_mario_action_data_transitions,
         sm64_camera_triggers=sm64_camera_triggers,
+        sm64_save_structs=sm64_save_structs,
+        sm64_save_fields=sm64_save_fields,
+        sm64_save_flags=sm64_save_flags,
     )

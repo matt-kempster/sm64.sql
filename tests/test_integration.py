@@ -56,6 +56,9 @@ def test_parse_repo_finds_entities(everything):
     assert len(everything.sm64_mario_animations) > 0
     assert len(everything.sm64_sounds) > 0
     assert len(everything.sm64_camera_triggers) > 0
+    assert len(everything.sm64_save_structs) > 0
+    assert len(everything.sm64_save_fields) > 0
+    assert len(everything.sm64_save_flags) > 0
 
 
 def test_sounds_have_banks(everything):
@@ -758,3 +761,62 @@ def test_camera_trigger_unused_table_is_surfaced(conn):
         ).fetchone()[0]
         > 0
     )
+
+
+def test_save_layout_over_real_data(everything):
+    structs = {s.struct_name: s for s in everything.sm64_save_structs}
+    # The four structs that make up the EEPROM image are all present and sized.
+    assert {"SaveBlockSignature", "SaveFile", "MainMenuSaveData", "SaveBuffer"} <= set(
+        structs
+    )
+    # Known sizes, verified against the source under the N64 ABI.
+    assert structs["SaveFile"].size == 0x38  # 56 bytes
+    assert structs["MainMenuSaveData"].size == 0x20  # 32 bytes
+
+    # A few SaveFile fields land at their known offsets.
+    sf = {
+        f.field_name: f
+        for f in everything.sm64_save_fields
+        if f.struct_name == "SaveFile"
+    }
+    assert sf["flags"].offset == 0x08 and sf["flags"].type_name == "u32"
+    assert sf["courseStars"].offset == 0x0C
+    # files[NUM_SAVE_FILES][2] keeps its 4-slots x 2-backups shape.
+    files = next(f for f in everything.sm64_save_fields if f.field_name == "files")
+    assert files.dims == "4,2" and files.count == 8 and files.is_struct
+
+    # The flags word: bits run 0..28 with the documented gaps (21, 22, 23 unused),
+    # all single-bit, all in the "flags" group.
+    flags = [f for f in everything.sm64_save_flags if f.flag_group == "flags"]
+    bits = {f.bit for f in flags}
+    assert {0, 1, 2, 3, 4} <= bits
+    assert bits.isdisjoint({21, 22, 23})  # genuine gaps in the numbering
+    assert all(bin(f.mask).count("1") == 1 for f in flags)
+
+
+def test_save_buffer_is_exactly_eeprom_size(conn):
+    cur = conn.cursor()
+    # The completeness invariant: the root struct tiles the whole 0x200 EEPROM.
+    size = cur.execute(
+        "SELECT size FROM save_struct WHERE struct_name = 'SaveBuffer'"
+    ).fetchone()[0]
+    assert size == 0x200
+
+    # And every struct's members account for all of its bytes -- no struct has any
+    # unexplained padding (the audit view reports 0 for all of them).
+    unaccounted = cur.execute(
+        "SELECT COUNT(*) FROM save_struct_coverage WHERE padding_bytes != 0"
+    ).fetchone()[0]
+    assert unaccounted == 0
+
+
+def test_save_field_struct_refs_resolve(conn):
+    cur = conn.cursor()
+    # Every struct-typed field points at a real save_struct row (no dangling
+    # drill-in target); scalar fields (is_struct = 0) are primitives with none.
+    dangling = cur.execute(
+        "SELECT COUNT(*) FROM save_field f "
+        "LEFT JOIN save_struct s ON f.type_name = s.struct_name "
+        "WHERE f.is_struct = 1 AND s.struct_name IS NULL"
+    ).fetchone()[0]
+    assert dangling == 0
