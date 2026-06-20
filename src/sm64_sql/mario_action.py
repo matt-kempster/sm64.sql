@@ -81,6 +81,7 @@ _SETTER_INTERNALS = frozenset(
     }
 )
 _ACTION_ARG = 1  # set_mario_action(m, ACT_*, ...) -- the action is the 2nd arg
+_ACT_LITERAL = re.compile(r"\bACT_[A-Z0-9_]+\b")  # a literal action in an expression
 
 # include/sm64.h declarations. An action is "#define ACT_X 0x........"; the
 # masks/groups/flags use a different shape (a (1<<n) / (n<<6) expression, or a
@@ -128,9 +129,33 @@ class SM64MarioActionCall:
 
 
 @dataclass
+class SM64MarioActionDataTransition:
+    """A transition whose destination is a runtime value, resolved to a literal
+    action (what the literal-only mario_transition view cannot see):
+
+    - a forwarded parameter: a helper does ``set_mario_action(m, landAction)`` and
+      a caller passes a literal (e.g. ``common_air_action_step(m, ACT_JUMP_LAND)``)
+      -- resolved one level, per-caller, so it is attributed only to the actions
+      that reach that caller;
+    - a literal embedded in an expression: a ternary
+      ``cond ? ACT_DIVE : ACT_JUMP_KICK`` -- both branches are real transitions.
+
+    Struct-table landings (``landingAction->endAction``) and computed targets stay
+    unresolved in mario_action_call_unclassified."""
+
+    action_name: str  # source ACT_* (joins mario_action), via reachability
+    to_action: str  # the resolved destination ACT_* (joins mario_action)
+    source: str  # "expr" (literal in expression) or the forwarded parameter name
+    function: str  # the C function the transition was resolved at
+    file: str
+    line: int
+
+
+@dataclass
 class ParsedMarioActions:
     actions: List[SM64MarioAction]
     calls: List[SM64MarioActionCall]
+    data_transitions: List[SM64MarioActionDataTransition]
 
 
 def _parse_action_constants(
@@ -233,12 +258,79 @@ def _dispatch_handlers(trees: List) -> Dict[str, str]:
     return handlers
 
 
+def _resolve_data_transitions(
+    funcs: Dict[str, Func],
+    func_actions: Dict[str, Set[str]],
+    action_names: Set[str],
+    literal_edges: Set[Tuple[str, str]],
+) -> List[SM64MarioActionDataTransition]:
+    """Resolve transitions whose target is a runtime value, beyond the literals.
+
+    Two shapes, both attributed only to actions that actually reach the code so
+    nothing is over-attributed, and both excluding edges already visible as
+    literals (``literal_edges``):
+      - a literal embedded in the target expression (a ternary's branches);
+      - the target is a parameter of the enclosing helper, resolved one level
+        from the helper's call sites (a forwarded literal land action).
+    """
+    callers: Dict[str, List[Tuple[str, List[str], int]]] = {}
+    for fn in funcs.values():
+        for call in fn.calls:
+            callers.setdefault(call.callee, []).append((fn.name, call.args, call.line))
+
+    rows: List[SM64MarioActionDataTransition] = []
+    seen: Set[Tuple[str, str]] = set()
+
+    def emit(
+        action: str, to_action: str, source: str, function: str, file: str, line: int
+    ) -> None:
+        if to_action not in action_names:
+            return
+        key = (action, to_action)
+        if key in literal_edges or key in seen:
+            return
+        seen.add(key)
+        rows.append(
+            SM64MarioActionDataTransition(
+                action, to_action, source, function, file, line
+            )
+        )
+
+    for name in sorted(func_actions):
+        fn = funcs[name]
+        for call in fn.calls:
+            if call.callee not in TRANSITION_SETTERS:
+                continue
+            tgt = call.args[_ACTION_ARG] if len(call.args) > _ACTION_ARG else None
+            if tgt is None or tgt in action_names:
+                continue  # no target, or already a clean literal edge
+            lits = [lit for lit in _ACT_LITERAL.findall(tgt) if lit in action_names]
+            if lits:
+                # A literal embedded in an expression (a ternary's branches);
+                # provenance is the setter call site itself.
+                for lit in lits:
+                    for action in sorted(func_actions[name]):
+                        emit(action, lit, "expr", fn.name, fn.file, call.line)
+            elif tgt in fn.params:
+                # A forwarded parameter: resolve from the helper's call sites,
+                # attributing to the actions that reach each caller. Provenance is
+                # the caller's call site, where the literal action is written.
+                idx = fn.params.index(tgt)
+                for caller, cargs, cline in callers.get(fn.name, ()):
+                    if idx >= len(cargs) or cargs[idx] not in action_names:
+                        continue
+                    cfile = funcs[caller].file if caller in funcs else fn.file
+                    for action in sorted(func_actions.get(caller, ())):
+                        emit(action, cargs[idx], tgt, caller, cfile, cline)
+    return sorted(rows, key=lambda r: (r.action_name, r.to_action))
+
+
 def parse_mario_actions(repo: Path) -> ParsedMarioActions:
     """Build the mario_action nodes and the mario_action_call edge backbone."""
     header_file = repo / "include" / "sm64.h"
     game_dir = repo.joinpath(*MARIO_SUBDIR)
     if not header_file.is_file() or not game_dir.is_dir():
-        return ParsedMarioActions([], [])
+        return ParsedMarioActions([], [], [])
 
     actions, group_by_value, flag_bits = _parse_action_constants(
         header_file.read_text()
@@ -280,8 +372,11 @@ def parse_mario_actions(repo: Path) -> ParsedMarioActions:
         for reached in reachable(handler, funcs, recursion_set):
             func_actions.setdefault(reached, set()).add(action)
 
-    # Emit one row per (action, transition-setter call site), stably ordered.
+    # Emit one row per (action, transition-setter call site), stably ordered,
+    # and collect the literal-at-site edges (so the data resolver below only adds
+    # transitions the literal mario_transition view cannot already see).
     calls: List[SM64MarioActionCall] = []
+    literal_edges: Set[Tuple[str, str]] = set()
     for name in sorted(func_actions):
         fn = funcs[name]
         for action in sorted(func_actions[name]):
@@ -291,6 +386,8 @@ def parse_mario_actions(repo: Path) -> ParsedMarioActions:
                 target = (
                     call.args[_ACTION_ARG] if len(call.args) > _ACTION_ARG else None
                 )
+                if target in action_names:
+                    literal_edges.add((action, target))
                 calls.append(
                     SM64MarioActionCall(
                         action_name=action,
@@ -304,4 +401,8 @@ def parse_mario_actions(repo: Path) -> ParsedMarioActions:
                         line=call.line,
                     )
                 )
-    return ParsedMarioActions(nodes, calls)
+
+    data_transitions = _resolve_data_transitions(
+        funcs, func_actions, action_names, literal_edges
+    )
+    return ParsedMarioActions(nodes, calls, data_transitions)

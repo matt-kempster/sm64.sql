@@ -13,7 +13,11 @@ from sm64_sql.everything import SM64Everything
 from sm64_sql.level import SM64Level
 from sm64_sql.macro_object import SM64MacroObject
 from sm64_sql.macro_preset import SM64MacroPreset
-from sm64_sql.mario_action import SM64MarioAction, SM64MarioActionCall
+from sm64_sql.mario_action import (
+    SM64MarioAction,
+    SM64MarioActionCall,
+    SM64MarioActionDataTransition,
+)
 from sm64_sql.mario_animation import SM64MarioAnimation
 from sm64_sql.model import SM64Model
 from sm64_sql.model_load import SM64ModelLoad
@@ -313,6 +317,16 @@ def _everything():
                 line=306,
             ),
         ],
+        sm64_mario_action_data_transitions=[
+            SM64MarioActionDataTransition(
+                action_name="ACT_JUMP",
+                to_action="ACT_WALKING",
+                source="endAction",
+                function="act_jump",
+                file="src/game/mario_actions_airborne.c",
+                line=456,
+            )
+        ],
     )
 
 
@@ -480,9 +494,24 @@ def test_write_to_db_round_trip():
     ).fetchall()
     assert transition == [("ACT_WALKING", "ACT_JUMP", "AIRBORNE")]
 
-    # The forwarded (non-literal) target is not an edge: it is the audit residue.
+    # The forwarded (non-literal) target is not a literal edge: it is the audit
+    # residue (mario_action_call_unclassified shows the raw non-literal target).
     residue = cur.execute(
         "SELECT target, n FROM mario_action_call_unclassified"
     ).fetchall()
     assert residue == [("landAction", 1)]
+
+    # A runtime transition resolved to a literal action joins both endpoints.
+    data_t = cur.execute(
+        "SELECT t.action_name, t.to_action, a.group_name "
+        "FROM mario_action_data_transition t "
+        "JOIN mario_action a ON t.to_action = a.action_name"
+    ).fetchall()
+    assert data_t == [("ACT_JUMP", "ACT_WALKING", "MOVING")]
+
+    # mario_all_transitions unions the literal and resolved edges.
+    all_t = cur.execute(
+        "SELECT action_name, to_action FROM mario_all_transitions ORDER BY action_name"
+    ).fetchall()
+    assert all_t == [("ACT_JUMP", "ACT_WALKING"), ("ACT_WALKING", "ACT_JUMP")]
     conn.close()

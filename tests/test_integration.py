@@ -612,3 +612,58 @@ def test_mario_action_residue_is_visible(conn):
         row[0] for row in cur.execute("SELECT action_name FROM mario_action").fetchall()
     }
     assert not (residue & real_actions)
+
+
+def test_mario_data_transitions_over_real_data(conn):
+    cur = conn.cursor()
+
+    # Forwarded land action recovered: act_jump -> ACT_JUMP_LAND through
+    # common_air_action_step(m, ACT_JUMP_LAND, ...), resolved one level.
+    assert (
+        cur.execute(
+            "SELECT COUNT(*) FROM mario_action_data_transition "
+            "WHERE action_name='ACT_JUMP' AND to_action='ACT_JUMP_LAND'"
+        ).fetchone()[0]
+        > 0
+    )
+
+    # Ternary branches recovered as expression literals: a double jump can
+    # become a dive or a jump-kick depending on speed.
+    branches = {
+        row[0]
+        for row in cur.execute(
+            "SELECT to_action FROM mario_action_data_transition "
+            "WHERE action_name='ACT_DOUBLE_JUMP' AND source='expr'"
+        ).fetchall()
+    }
+    assert {"ACT_DIVE", "ACT_JUMP_KICK"} <= branches
+
+    # Both endpoints are real action nodes (no danglers).
+    for col in ("action_name", "to_action"):
+        assert (
+            cur.execute(
+                f"SELECT COUNT(*) FROM mario_action_data_transition t "
+                f"LEFT JOIN mario_action a ON t.{col} = a.action_name "
+                f"WHERE a.action_name IS NULL"
+            ).fetchone()[0]
+            == 0
+        )
+
+    # Data transitions only ADD edges the literal view cannot see: a resolved edge
+    # never duplicates a literal one.
+    overlap = cur.execute(
+        "SELECT COUNT(*) FROM mario_action_data_transition d "
+        "JOIN mario_transition t "
+        "ON d.action_name = t.action_name AND d.to_action = t.to_action"
+    ).fetchone()[0]
+    assert overlap == 0
+
+    # mario_all_transitions is the dedup union; with no overlap it is exactly the
+    # literal edges plus the resolved ones, and strictly larger than literal-only.
+    lit = cur.execute("SELECT COUNT(*) FROM mario_transition").fetchone()[0]
+    allt = cur.execute("SELECT COUNT(*) FROM mario_all_transitions").fetchone()[0]
+    data = cur.execute("SELECT COUNT(*) FROM mario_action_data_transition").fetchone()[
+        0
+    ]
+    assert data > 80
+    assert allt == lit + data

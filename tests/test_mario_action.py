@@ -27,6 +27,7 @@ _HEADER = """\
 #define ACT_BRAKING          0x04000443 // moving
 #define ACT_TURNING_AROUND   0x04000442 // moving
 #define ACT_STEEP_JUMP       0x03000888 // airborne
+#define ACT_FREEFALL         0x00000882 // airborne
 """
 
 # set_mario_action / drop_and_set_mario_action are the leaf setters (never
@@ -64,9 +65,15 @@ s32 act_walking(struct MarioState *m) {
     return FALSE;
 }
 
+s32 common_land_step(struct MarioState *m, u32 landAction) {
+    return set_mario_action(m, landAction, 0);
+}
+
 s32 act_decelerating(struct MarioState *m) {
     u32 endAction = ACT_WALKING;
     set_mario_action(m, endAction, 0);
+    common_land_step(m, ACT_FREEFALL);
+    set_mario_action(m, x ? ACT_BRAKING : ACT_IDLE, 0);
     return FALSE;
 }
 
@@ -109,6 +116,7 @@ def test_action_constants_decoded(tmp_path: Path):
         "ACT_BRAKING",
         "ACT_TURNING_AROUND",
         "ACT_STEEP_JUMP",
+        "ACT_FREEFALL",
     }
     walking = nodes["ACT_WALKING"]
     assert walking.id == "0x04000440"
@@ -163,3 +171,21 @@ def test_forwarded_target_is_residue(tmp_path: Path):
     assert ("ACT_DECELERATING", "endAction") in {
         (c.action_name, c.target) for c in parsed.calls
     }
+
+
+def test_data_transitions_resolve_forwarded_and_expr(tmp_path: Path):
+    parsed = parse_mario_actions(_fake_repo(tmp_path))
+    dt = {(d.action_name, d.to_action): d for d in parsed.data_transitions}
+    # Forwarded parameter: act_decelerating calls common_land_step(m, ACT_FREEFALL),
+    # which does set_mario_action(m, landAction) -- resolved from the call site.
+    assert ("ACT_DECELERATING", "ACT_FREEFALL") in dt
+    assert dt[("ACT_DECELERATING", "ACT_FREEFALL")].source == "landAction"
+    # Ternary: both branches of (x ? ACT_BRAKING : ACT_IDLE) are real transitions.
+    assert ("ACT_DECELERATING", "ACT_BRAKING") in dt
+    assert ("ACT_DECELERATING", "ACT_IDLE") in dt
+    assert dt[("ACT_DECELERATING", "ACT_BRAKING")].source == "expr"
+    # The unresolved local (endAction) is NOT promoted to a resolved edge.
+    assert ("ACT_DECELERATING", "ACT_WALKING") not in dt
+    # Data transitions never duplicate a literal edge: ACT_WALKING -> ACT_IDLE is
+    # already literal (via common_moving_cancels), so it is not re-emitted here.
+    assert ("ACT_WALKING", "ACT_IDLE") not in dt

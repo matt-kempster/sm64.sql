@@ -69,8 +69,10 @@
     const actionRows = rowsOf(
       "SELECT action_name, id, group_name, flags_json, handler FROM mario_action"
     );
+    // Every transition: literal-target edges plus the runtime ones resolved to a
+    // literal action (forwarded land actions, ternary branches).
     const links = rowsOf(
-      "SELECT action_name AS src, to_action AS dst FROM mario_transition"
+      "SELECT action_name AS src, to_action AS dst FROM mario_all_transitions"
     ).map((r) => ({ source: r.src, target: r.dst }));
 
     // Degree (in + out) drives node size; a self-loop counts once.
@@ -392,30 +394,46 @@
       `SELECT id, group_name, handler, file, line FROM mario_action WHERE action_name='${A}'`
     )[0] || {};
 
-    // Outgoing: distinct resolved targets, with one representative call site.
-    const outRows = rowsOf(`
-      SELECT target d, call, file, line FROM mario_action_call
-      WHERE action_name='${A}' AND target IN (SELECT action_name FROM mario_action)
-      ORDER BY target, line`);
-    const outSeen = new Set();
+    // Outgoing: literal-at-site targets (one representative call site each),
+    // then runtime ones resolved to a literal action (with a source pill).
     const out = [];
-    outRows.forEach((r) => {
+    const outSeen = new Set();
+    rowsOf(`
+      SELECT target d, file, line FROM mario_action_call
+      WHERE action_name='${A}' AND target IN (SELECT action_name FROM mario_action)
+      ORDER BY target, line`).forEach((r) => {
       if (outSeen.has(r.d)) return;
       outSeen.add(r.d);
       out.push(goto(r.d) + src(r.file, r.line));
     });
+    rowsOf(`
+      SELECT to_action d, source, file, line FROM mario_action_data_transition
+      WHERE action_name='${A}' ORDER BY to_action`).forEach((r) => {
+      if (outSeen.has(r.d)) return;
+      outSeen.add(r.d);
+      out.push(
+        goto(r.d) +
+          src(r.file, r.line) +
+          ` <span class="pill">${escapeHtml(r.source)}</span>`
+      );
+    });
 
-    // Incoming: which actions can transition into this one.
+    // Incoming: which actions can transition into this one (any origin).
     const inc = rowsOf(
-      `SELECT DISTINCT action_name s FROM mario_transition WHERE to_action='${A}' ORDER BY action_name`
+      `SELECT DISTINCT action_name s FROM mario_all_transitions WHERE to_action='${A}' ORDER BY action_name`
     ).map((r) => goto(r.s));
 
-    // Runtime (unresolved) transitions: a forwarded param or table field we
-    // cannot pin to a literal action -- shown honestly, not hidden.
+    // Genuinely-unresolved transitions: a struct-table landing or a computed
+    // target we cannot pin to a literal action -- shown honestly, not hidden.
+    // (Excludes targets resolved above: literals in expressions and the
+    // forwarded params that became a source pill.)
     const runtime = rowsOf(`
       SELECT DISTINCT target t, file, line FROM mario_action_call
       WHERE action_name='${A}' AND target IS NOT NULL
         AND target NOT IN (SELECT action_name FROM mario_action)
+        AND target NOT GLOB '*ACT_*'
+        AND target NOT IN (
+          SELECT source FROM mario_action_data_transition WHERE action_name='${A}')
       ORDER BY target`).map(
       (r) => `<span class="src">${escapeHtml(r.t)}</span>${src(r.file, r.line)}`
     );

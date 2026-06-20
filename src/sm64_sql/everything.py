@@ -21,6 +21,7 @@ from sm64_sql.macro_preset import SM64MacroPreset, parse_macro_presets
 from sm64_sql.mario_action import (
     SM64MarioAction,
     SM64MarioActionCall,
+    SM64MarioActionDataTransition,
     parse_mario_actions,
 )
 from sm64_sql.mario_animation import SM64MarioAnimation, parse_mario_animations
@@ -66,6 +67,7 @@ class SM64Everything:
     sm64_behavior_data_spawns: List[SM64BehaviorDataSpawn]
     sm64_mario_actions: List[SM64MarioAction]
     sm64_mario_action_calls: List[SM64MarioActionCall]
+    sm64_mario_action_data_transitions: List[SM64MarioActionDataTransition]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -98,6 +100,11 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("behavior_data_spawn", SM64BehaviorDataSpawn, "sm64_behavior_data_spawns"),
     ("mario_action", SM64MarioAction, "sm64_mario_actions"),
     ("mario_action_call", SM64MarioActionCall, "sm64_mario_action_calls"),
+    (
+        "mario_action_data_transition",
+        SM64MarioActionDataTransition,
+        "sm64_mario_action_data_transitions",
+    ),
 ]
 
 
@@ -238,6 +245,13 @@ TABLE_KEYS: Dict[str, TableKeys] = {
     # is a declared key.
     "mario_action_call": TableKeys(
         foreign_keys=(_fk("action_name", "mario_action", "action_name"),)
+    ),
+    # Runtime transitions resolved to a literal action: both ends are real nodes.
+    "mario_action_data_transition": TableKeys(
+        foreign_keys=(
+            _fk("action_name", "mario_action", "action_name"),
+            _fk("to_action", "mario_action", "action_name"),
+        )
     ),
 }
 
@@ -478,6 +492,19 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         ORDER BY n DESC, target
         """,
     ),
+    # The complete transition graph: the literal-target edges (mario_transition)
+    # plus the runtime ones resolved to a literal action (forwarded land actions,
+    # ternary branches) that the literal view cannot see. Deduplicated to one row
+    # per (source, destination). The Actions tab reads this.
+    (
+        "mario_all_transitions",
+        """
+        CREATE VIEW mario_all_transitions AS
+        SELECT action_name, to_action FROM mario_transition
+        UNION
+        SELECT action_name, to_action FROM mario_action_data_transition
+        """,
+    ),
 ]
 
 
@@ -695,6 +722,7 @@ def parse_repo(repo: Path) -> SM64Everything:
     parsed_mario_actions = parse_mario_actions(repo)
     sm64_mario_actions = parsed_mario_actions.actions
     sm64_mario_action_calls = parsed_mario_actions.calls
+    sm64_mario_action_data_transitions = parsed_mario_actions.data_transitions
     sm64_mario_animations = parse_mario_animations(
         repo / "include" / "mario_animation_ids.h"
     )
@@ -736,4 +764,5 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_behavior_data_spawns=sm64_behavior_data_spawns,
         sm64_mario_actions=sm64_mario_actions,
         sm64_mario_action_calls=sm64_mario_action_calls,
+        sm64_mario_action_data_transitions=sm64_mario_action_data_transitions,
     )
