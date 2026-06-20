@@ -31,6 +31,7 @@ completeness audit is a query, not a promise.
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -42,6 +43,19 @@ import tree_sitter_c
 from tree_sitter import Language, Parser
 
 BEHAVIOR_SUBDIR = ("src", "game", "behaviors")
+
+# Many behaviors dispatch their per-frame logic through an action-function table:
+#   void (*sFooActions[])(void) = { foo_act_0, foo_act_1, ... };
+#   void bhv_foo_loop(void) { ... cur_obj_call_action_function(sFooActions); }
+# The table is invoked ONLY via this one dispatcher -- verified across the whole
+# decomp: every such table is referenced exactly twice, its definition and its
+# cur_obj_call_action_function argument, with no manual subscript dispatch. So
+# reachability follows that call into each function the table lists; otherwise
+# those per-action functions (and the spawns/sounds/dialog inside them) would be
+# invisible, since the dispatch goes through a function pointer the call graph
+# cannot see.
+_DISPATCHERS = {"cur_obj_call_action_function"}
+_FN_PTR_TABLE = re.compile(r"\(\s*\*\s*(\w+)\s*\[\s*\]\s*\)\s*\(")
 
 
 @dataclass
@@ -136,9 +150,7 @@ def _collect_calls(body) -> List[_Call]:
     return calls
 
 
-def parse_c_functions(path: Path, rel: str) -> List[_Func]:
-    """Parse one C file into its function definitions and their call sites."""
-    tree = _get_parser().parse(path.read_bytes())
+def _functions_from_tree(tree, rel: str) -> List[_Func]:
     funcs: List[_Func] = []
 
     def visit(node) -> None:
@@ -153,6 +165,49 @@ def parse_c_functions(path: Path, rel: str) -> List[_Func]:
 
     visit(tree.root_node)
     return funcs
+
+
+def _find_descendant(node, node_type):
+    if node.type == node_type:
+        return node
+    for child in node.children:
+        found = _find_descendant(child, node_type)
+        if found is not None:
+            return found
+    return None
+
+
+def _action_tables_from_tree(tree) -> Dict[str, List[str]]:
+    """Map every ``void (*sFoo[])(void) = {...}`` table to the functions it lists.
+
+    NULL / non-function initializer entries are kept verbatim here; the caller
+    filters to functions it actually parsed, so they harmlessly drop out.
+    """
+    tables: Dict[str, List[str]] = {}
+
+    def visit(node) -> None:
+        if node.type == "declaration":
+            match = _FN_PTR_TABLE.search(node.text.decode())
+            init = _find_descendant(node, "initializer_list") if match else None
+            if match and init is not None:
+                fns = [
+                    child.text.decode()
+                    for child in init.named_children
+                    if child.type == "identifier"
+                ]
+                if fns:
+                    tables[match.group(1)] = fns
+            return  # a declaration holds no nested action tables
+        for child in node.children:
+            visit(child)
+
+    visit(tree.root_node)
+    return tables
+
+
+def parse_c_functions(path: Path, rel: str) -> List[_Func]:
+    """Parse one C file into its function definitions and their call sites."""
+    return _functions_from_tree(_get_parser().parse(path.read_bytes()), rel)
 
 
 def _files_defining(repo: Path, names: Set[str]) -> List[Path]:
@@ -179,23 +234,38 @@ def _files_defining(repo: Path, names: Set[str]) -> List[Path]:
     return result
 
 
-def _reachable(root: str, funcs: Dict[str, _Func], recursion_set: Set[str]) -> Set[str]:
+def _reachable(
+    root: str,
+    funcs: Dict[str, _Func],
+    recursion_set: Set[str],
+    action_tables: Dict[str, List[str]],
+) -> Set[str]:
     """Functions reachable from ``root`` through object-behavior code.
 
-    Recursion descends only into callees in ``recursion_set`` (the behaviors/
-    functions); everything else is a leaf. ``root`` itself is always included,
-    even when it lives outside behaviors/ (an external CALL_NATIVE root).
+    Recursion descends into a callee in ``recursion_set`` (the behaviors/
+    functions); everything else is a leaf. A call to the action dispatcher
+    ``cur_obj_call_action_function(table)`` is followed into every function the
+    table lists -- the only way those per-action functions are reached, since the
+    dispatch is through a function-pointer table. ``root`` itself is always
+    included, even when it lives outside behaviors/ (an external CALL_NATIVE root).
     """
     seen = {root}
     stack = [root]
+
+    def enqueue(name: str) -> None:
+        if name in recursion_set and name not in seen:
+            seen.add(name)
+            stack.append(name)
+
     while stack:
         fn = funcs.get(stack.pop())
         if fn is None:
             continue
         for call in fn.calls:
-            if call.callee in recursion_set and call.callee not in seen:
-                seen.add(call.callee)
-                stack.append(call.callee)
+            enqueue(call.callee)
+            if call.callee in _DISPATCHERS and call.args:
+                for action_fn in action_tables.get(call.args[0], ()):
+                    enqueue(action_fn)
     return seen
 
 
@@ -212,12 +282,17 @@ def parse_behavior_calls(
         return []
 
     # 1. Parse object-behavior files. These functions are the recursion set: the
-    #    call graph is followed only through this object code.
+    #    call graph is followed only through this object code. Action-function
+    #    tables are collected from the same parse so the dispatcher can be
+    #    followed into them.
     funcs: Dict[str, _Func] = {}
+    action_tables: Dict[str, List[str]] = {}
     for path in sorted(behaviors_dir.glob("*.inc.c")):
         rel = path.relative_to(repo).as_posix()
-        for fn in parse_c_functions(path, rel):
+        tree = _get_parser().parse(path.read_bytes())
+        for fn in _functions_from_tree(tree, rel):
             funcs[fn.name] = fn
+        action_tables.update(_action_tables_from_tree(tree))
     recursion_set = set(funcs)
 
     # 2. A few CALL_NATIVE roots live outside behaviors/ (menu/cutscene/mario
@@ -226,7 +301,9 @@ def parse_behavior_calls(
     external = set(root_to_behaviors) - recursion_set
     for path in _files_defining(repo, external):
         rel = path.relative_to(repo).as_posix()
-        for fn in parse_c_functions(path, rel):
+        tree = _get_parser().parse(path.read_bytes())
+        action_tables.update(_action_tables_from_tree(tree))
+        for fn in _functions_from_tree(tree, rel):
             if fn.name in external and fn.name not in funcs:
                 funcs[fn.name] = fn
 
@@ -236,7 +313,7 @@ def parse_behavior_calls(
     for root, behaviors in root_to_behaviors.items():
         if root not in funcs:
             continue  # engine-helper "root" with no parsed body, or a macro
-        for reached in _reachable(root, funcs, recursion_set):
+        for reached in _reachable(root, funcs, recursion_set, action_tables):
             func_behaviors.setdefault(reached, set()).update(behaviors)
 
     # 4. Emit one row per (behavior, call site), ordered for a stable database.

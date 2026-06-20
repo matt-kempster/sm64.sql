@@ -273,7 +273,7 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
     # These read the same way as behavior_spawn above, but over the call sites
     # rather than the script opcodes. The target symbol is found by pattern, not
     # position, so they are robust to each helper's differing argument order: a
-    # spawned behavior is the 'bhv[A-Z]*' argument, a model the 'MODEL_*' one.
+    # spawned behavior is the 'bhv[A-Z0-9]*' argument, a model the 'MODEL_*' one.
     # Each view lists only the sites where the target *resolves to a literal*
     # (the EXISTS guard); a call that passes its target as a runtime value -- a
     # signpost reading its dialog id from oBhvParams2ndByte, a spawn of a
@@ -286,7 +286,7 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         CREATE VIEW behavior_calls_spawn AS
         SELECT behavior_name, function, file, line, call,
                (SELECT value FROM json_each(args_json)
-                WHERE value GLOB 'bhv[A-Z]*' LIMIT 1) AS spawned_behavior,
+                WHERE value GLOB 'bhv[A-Z0-9]*' LIMIT 1) AS spawned_behavior,
                (SELECT value FROM json_each(args_json)
                 WHERE value GLOB 'MODEL_*' LIMIT 1) AS spawned_model
         FROM behavior_call
@@ -296,7 +296,7 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
                        'spawn_object_rel_with_rot', 'spawn_object_with_scale',
                        'spawn_child_obj_relative')
           AND EXISTS (SELECT 1 FROM json_each(args_json)
-                      WHERE value GLOB 'bhv[A-Z]*')
+                      WHERE value GLOB 'bhv[A-Z0-9]*')
         """,
     ),
     (
@@ -349,11 +349,11 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         CREATE VIEW behavior_calls_morph AS
         SELECT behavior_name, function, file, line, call,
                (SELECT value FROM json_each(args_json)
-                WHERE value GLOB 'bhv[A-Z]*' LIMIT 1) AS becomes_behavior
+                WHERE value GLOB 'bhv[A-Z0-9]*' LIMIT 1) AS becomes_behavior
         FROM behavior_call
         WHERE call IN ('cur_obj_set_behavior', 'obj_set_behavior')
           AND EXISTS (SELECT 1 FROM json_each(args_json)
-                      WHERE value GLOB 'bhv[A-Z]*')
+                      WHERE value GLOB 'bhv[A-Z0-9]*')
         """,
     ),
     (
@@ -362,13 +362,13 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         CREATE VIEW behavior_calls_seek AS
         SELECT behavior_name, function, file, line, call,
                (SELECT value FROM json_each(args_json)
-                WHERE value GLOB 'bhv[A-Z]*' LIMIT 1) AS target_behavior
+                WHERE value GLOB 'bhv[A-Z0-9]*' LIMIT 1) AS target_behavior
         FROM behavior_call
         WHERE call IN ('cur_obj_nearest_object_with_behavior',
                        'obj_nearest_object_with_behavior',
                        'cur_obj_has_behavior', 'obj_has_behavior')
           AND EXISTS (SELECT 1 FROM json_each(args_json)
-                      WHERE value GLOB 'bhv[A-Z]*')
+                      WHERE value GLOB 'bhv[A-Z0-9]*')
         """,
     ),
     # Completeness audit: every captured call site that NO relation view above

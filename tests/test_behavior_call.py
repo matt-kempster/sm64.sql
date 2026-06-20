@@ -117,6 +117,33 @@ def test_external_root_outside_behaviors_dir(tmp_path: Path):
     )
 
 
+def test_action_function_table_is_followed(tmp_path: Path):
+    # The common SM64 idiom: a loop dispatches per-frame logic through a
+    # function-pointer table via cur_obj_call_action_function. Reachability must
+    # follow that into each action function (and the spawns/sounds inside them),
+    # which a plain call graph cannot see.
+    _behaviors_dir(tmp_path).joinpath("boss.inc.c").write_text(
+        "void boss_act_attack(void) {\n"
+        "    spawn_object(o, MODEL_FIRE, bhvFlame);\n"
+        "}\n"
+        "void boss_act_idle(void) {\n"
+        "    cur_obj_play_sound_2(SOUND_OBJ_BOSS);\n"
+        "}\n"
+        "void (*sBossActions[])(void) = { NULL, boss_act_idle, boss_act_attack };\n"
+        "void bhv_boss_loop(void) {\n"
+        "    cur_obj_call_action_function(sBossActions);\n"
+        "}\n"
+    )
+    rows = parse_behavior_calls(tmp_path, {"bhv_boss_loop": ["bhvBoss"]})
+    reached = {r.function for r in rows}
+    # Both action functions are reached even though nothing calls them directly.
+    assert {"boss_act_attack", "boss_act_idle"} <= reached
+    spawns = [r for r in rows if r.call == "spawn_object"]
+    assert len(spawns) == 1
+    assert spawns[0].args == "o, MODEL_FIRE, bhvFlame"
+    assert spawns[0].behavior_name == "bhvBoss"
+
+
 def test_unparsed_root_is_skipped(tmp_path: Path):
     # A CALL_NATIVE root with no definition anywhere (e.g. a macro template, or
     # an engine helper used directly as a loop) simply contributes no rows.

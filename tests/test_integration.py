@@ -324,6 +324,12 @@ def test_behavior_call_backbone(everything):
     behavior_names = {b.behavior_name for b in everything.sm64_behaviors}
     assert len({c.behavior_name for c in calls} & behavior_names) > 300
 
+    # Action-function-table dispatch is followed, so the large majority of the
+    # ~1226 functions in src/game/behaviors/ are reached (not just the ones a
+    # plain call graph sees from each CALL_NATIVE root).
+    reached = {c.function for c in calls if "/behaviors/" in c.file}
+    assert len(reached) > 1000
+
 
 def test_behavior_call_relations_over_real_data(conn):
     cur = conn.cursor()
@@ -340,6 +346,29 @@ def test_behavior_call_relations_over_real_data(conn):
         ).fetchall()
     }
     assert "bhvExplosion" in bobomb
+
+    # Action-table dispatch recovered: the exclamation box reaches the action
+    # functions behind cur_obj_call_action_function(sExclamationBoxActions), one
+    # of which spawns the rotating "!" mark.
+    exc = {
+        row[0]
+        for row in cur.execute(
+            "SELECT spawned_behavior FROM behavior_calls_spawn "
+            "WHERE behavior_name = 'bhvExclamationBox'"
+        ).fetchall()
+    }
+    assert "bhvRotatingExclamationMark" in exc
+
+    # Digit-prefixed behaviors resolve (regression for the bhv[A-Z0-9] pattern):
+    # Monty Mole drops a walking 1-Up.
+    monty = {
+        row[0]
+        for row in cur.execute(
+            "SELECT spawned_behavior FROM behavior_calls_spawn "
+            "WHERE behavior_name = 'bhvMontyMole'"
+        ).fetchall()
+    }
+    assert "bhv1UpWalking" in monty
 
     # Every resolved relation target joins to its parent table -- no danglers.
     def dangling(view, col, parent, key):
