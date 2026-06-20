@@ -14,12 +14,26 @@ ships to the web client. It is pinned to 0.21.x in pyproject (its
 ``Language()`` / ``Parser()`` API differs from 0.22+).
 """
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, FrozenSet, List, Optional, Set
 
 import tree_sitter_c
 from tree_sitter import Language, Parser
+
+# Preprocessor conditional directives. tree-sitter parses C, not the preprocessor,
+# so a directive that splits a brace pair -- e.g. an "#if ENABLE_RUMBLE { #endif
+# ... #if ENABLE_RUMBLE } #endif" wrapping an if-block -- leaves the braces
+# unbalanced in the token stream and the enclosing function fails to parse,
+# silently dropping it (and the calls inside it). Blanking these directive lines
+# (keeping their newline, so line numbers are preserved for provenance) restores
+# a balanced, parseable body. The guarded code itself is kept -- we want the
+# calls it contains -- so this is safe for the no-#else case that dominates the
+# decomp; an #if/#else with cross-arm braces would still drop, no worse than now.
+_PREPROC_COND = re.compile(
+    rb"^[ \t]*#[ \t]*(?:if|ifdef|ifndef|elif|else|endif)\b.*$", re.MULTILINE
+)
 
 
 @dataclass
@@ -35,6 +49,7 @@ class Func:
     file: str  # repo-relative
     calls: List[Call] = field(default_factory=list)
     params: List[Optional[str]] = field(default_factory=list)
+    line: int = 0  # 1-based line of the definition (provenance)
 
 
 _parser: Optional[Parser] = None
@@ -133,7 +148,13 @@ def functions_from_tree(tree, rel: str) -> List[Func]:
             body = node.child_by_field_name("body")
             if name is not None and body is not None:
                 funcs.append(
-                    Func(name, rel, collect_calls(body), function_params(node))
+                    Func(
+                        name,
+                        rel,
+                        collect_calls(body),
+                        function_params(node),
+                        node.start_point[0] + 1,
+                    )
                 )
             return  # C has no nested function definitions
         for child in node.children:
@@ -153,9 +174,22 @@ def find_descendant(node, node_type):
     return None
 
 
+def parse_tree(path: Path, strip_conditionals: bool = False):
+    """Parse a C file to a tree-sitter tree.
+
+    With ``strip_conditionals`` the preprocessor conditional directives are
+    blanked first (see ``_PREPROC_COND``) so a function whose braces are split
+    across an ``#if``/``#endif`` is still parsed.
+    """
+    src = path.read_bytes()
+    if strip_conditionals:
+        src = _PREPROC_COND.sub(b"", src)
+    return get_parser().parse(src)
+
+
 def parse_c_functions(path: Path, rel: str) -> List[Func]:
     """Parse one C file into its function definitions and their call sites."""
-    return functions_from_tree(get_parser().parse(path.read_bytes()), rel)
+    return functions_from_tree(parse_tree(path), rel)
 
 
 def reachable(

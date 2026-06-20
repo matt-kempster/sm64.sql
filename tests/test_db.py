@@ -13,6 +13,7 @@ from sm64_sql.everything import SM64Everything
 from sm64_sql.level import SM64Level
 from sm64_sql.macro_object import SM64MacroObject
 from sm64_sql.macro_preset import SM64MacroPreset
+from sm64_sql.mario_action import SM64MarioAction, SM64MarioActionCall
 from sm64_sql.mario_animation import SM64MarioAnimation
 from sm64_sql.model import SM64Model
 from sm64_sql.model_load import SM64ModelLoad
@@ -268,6 +269,50 @@ def _everything():
                 line=130,
             )
         ],
+        sm64_mario_actions=[
+            SM64MarioAction(
+                action_name="ACT_WALKING",
+                id="0x04000440",
+                group_name="MOVING",
+                flags_json='["MOVING"]',
+                handler="act_walking",
+                file="src/game/mario_actions_moving.c",
+                line=300,
+            ),
+            SM64MarioAction(
+                action_name="ACT_JUMP",
+                id="0x03000880",
+                group_name="AIRBORNE",
+                flags_json='["AIR"]',
+                handler="act_jump",
+                file="src/game/mario_actions_airborne.c",
+                line=400,
+            ),
+        ],
+        sm64_mario_action_calls=[
+            SM64MarioActionCall(
+                action_name="ACT_WALKING",
+                function="act_walking",
+                seq=0,
+                call="set_mario_action",
+                target="ACT_JUMP",
+                args="m, ACT_JUMP, 0",
+                args_json='["m", "ACT_JUMP", "0"]',
+                file="src/game/mario_actions_moving.c",
+                line=305,
+            ),
+            SM64MarioActionCall(
+                action_name="ACT_WALKING",
+                function="act_walking",
+                seq=1,
+                call="set_mario_action",
+                target="landAction",
+                args="m, landAction, 0",
+                args_json='["m", "landAction", "0"]',
+                file="src/game/mario_actions_moving.c",
+                line=306,
+            ),
+        ],
     )
 
 
@@ -423,4 +468,21 @@ def test_write_to_db_round_trip():
         "WHERE json_each.value = 'bhvGoomba' ORDER BY bc.command"
     ).fetchall()
     assert any_slot == [("SPAWN_CHILD",), ("SPAWN_CHILD_WITH_PARAM",)]
+
+    # The mario_action node table holds the action and its decoded group.
+    assert cur.execute("SELECT COUNT(*) FROM mario_action").fetchone()[0] == 2
+
+    # mario_transition resolves the literal-target setter call into an edge, and
+    # the target joins back to the action node table (its group).
+    transition = cur.execute(
+        "SELECT t.action_name, t.to_action, a.group_name FROM mario_transition t "
+        "JOIN mario_action a ON t.to_action = a.action_name"
+    ).fetchall()
+    assert transition == [("ACT_WALKING", "ACT_JUMP", "AIRBORNE")]
+
+    # The forwarded (non-literal) target is not an edge: it is the audit residue.
+    residue = cur.execute(
+        "SELECT target, n FROM mario_action_call_unclassified"
+    ).fetchall()
+    assert residue == [("landAction", 1)]
     conn.close()

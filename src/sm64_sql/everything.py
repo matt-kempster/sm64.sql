@@ -18,6 +18,11 @@ from sm64_sql.dialog import SM64Dialog, parse_dialogs
 from sm64_sql.level import SM64Level, parse_levels
 from sm64_sql.macro_object import SM64MacroObject, try_parse_macro_object
 from sm64_sql.macro_preset import SM64MacroPreset, parse_macro_presets
+from sm64_sql.mario_action import (
+    SM64MarioAction,
+    SM64MarioActionCall,
+    parse_mario_actions,
+)
 from sm64_sql.mario_animation import SM64MarioAnimation, parse_mario_animations
 from sm64_sql.model import SM64Model, parse_model_ids
 from sm64_sql.model_load import SM64ModelLoad, parse_model_loads
@@ -59,6 +64,8 @@ class SM64Everything:
     sm64_behavior_commands: List[SM64BehaviorCommand]
     sm64_behavior_calls: List[SM64BehaviorCall]
     sm64_behavior_data_spawns: List[SM64BehaviorDataSpawn]
+    sm64_mario_actions: List[SM64MarioAction]
+    sm64_mario_action_calls: List[SM64MarioActionCall]
 
 
 # Each entry maps a SQL table to the dataclass describing its columns and the
@@ -89,6 +96,8 @@ ENTITY_TABLES: List[Tuple[str, Type[Any], str]] = [
     ("behavior_command", SM64BehaviorCommand, "sm64_behavior_commands"),
     ("behavior_call", SM64BehaviorCall, "sm64_behavior_calls"),
     ("behavior_data_spawn", SM64BehaviorDataSpawn, "sm64_behavior_data_spawns"),
+    ("mario_action", SM64MarioAction, "sm64_mario_actions"),
+    ("mario_action_call", SM64MarioActionCall, "sm64_mario_action_calls"),
 ]
 
 
@@ -220,6 +229,15 @@ TABLE_KEYS: Dict[str, TableKeys] = {
             _fk("spawned_behavior", "behavior", "behavior_name"),
             _fk("spawned_model", "model", "model_name"),
         )
+    ),
+    # ---- Mario's action state machine ----
+    "mario_action": TableKeys(primary_key=("action_name",)),
+    # The transition target lives in mario_action_call.target as a raw expression
+    # (a literal ACT_*, or a computed/forwarded value), so it is not a clean FK;
+    # the mario_transition view resolves the literal ones. Only the source action
+    # is a declared key.
+    "mario_action_call": TableKeys(
+        foreign_keys=(_fk("action_name", "mario_action", "action_name"),)
     ),
 }
 
@@ -428,6 +446,36 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         UNION ALL
         SELECT behavior_name, spawned_behavior, spawned_model, 'data'
         FROM behavior_data_spawn
+        """,
+    ),
+    # ----- Mario's action state machine (mario_action_call backbone) -----
+    # The resolved transition edges: a setter call whose target argument is a
+    # literal ACT_* that names a real action. Deduplicated to one row per
+    # (source, target) -- the call sites (which helper, which line) stay in
+    # mario_action_call. A self-loop (an action that can re-enter itself) is kept.
+    (
+        "mario_transition",
+        """
+        CREATE VIEW mario_transition AS
+        SELECT DISTINCT action_name, target AS to_action
+        FROM mario_action_call
+        WHERE target IN (SELECT action_name FROM mario_action)
+        """,
+    ),
+    # Completeness audit: setter calls whose target is NOT a literal action -- a
+    # forwarded parameter (endAction, landAction) or a table/struct field
+    # (landingAction->endAction). These are real transitions whose destination is
+    # only known at runtime; the visible residue, most-frequent first.
+    (
+        "mario_action_call_unclassified",
+        """
+        CREATE VIEW mario_action_call_unclassified AS
+        SELECT target, COUNT(*) AS n
+        FROM mario_action_call
+        WHERE target IS NOT NULL
+          AND target NOT IN (SELECT action_name FROM mario_action)
+        GROUP BY target
+        ORDER BY n DESC, target
         """,
     ),
 ]
@@ -642,6 +690,11 @@ def parse_repo(repo: Path) -> SM64Everything:
     parsed_behavior_code = parse_behavior_calls(repo, root_to_behaviors)
     sm64_behavior_calls = parsed_behavior_code.calls
     sm64_behavior_data_spawns = parsed_behavior_code.data_spawns
+    # Mario's action state machine: the ACT_* nodes and the transitions mined
+    # from each action handler's reachable C code (src/game/mario*.c).
+    parsed_mario_actions = parse_mario_actions(repo)
+    sm64_mario_actions = parsed_mario_actions.actions
+    sm64_mario_action_calls = parsed_mario_actions.calls
     sm64_mario_animations = parse_mario_animations(
         repo / "include" / "mario_animation_ids.h"
     )
@@ -681,4 +734,6 @@ def parse_repo(repo: Path) -> SM64Everything:
         sm64_behavior_commands=sm64_behavior_commands,
         sm64_behavior_calls=sm64_behavior_calls,
         sm64_behavior_data_spawns=sm64_behavior_data_spawns,
+        sm64_mario_actions=sm64_mario_actions,
+        sm64_mario_action_calls=sm64_mario_action_calls,
     )

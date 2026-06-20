@@ -493,3 +493,122 @@ def test_resolved_param_value_packs_the_bytes(everything):
             break
     else:
         raise AssertionError("expected a fully-numeric two-byte param to exist")
+
+
+def test_mario_action_backbone(everything):
+    actions = everything.sm64_mario_actions
+    calls = everything.sm64_mario_action_calls
+    # The whole action set: a couple hundred actions across all seven groups.
+    assert len(actions) > 200
+    assert {a.group_name for a in actions if a.group_name} == {
+        "STATIONARY",
+        "MOVING",
+        "AIRBORNE",
+        "SUBMERGED",
+        "CUTSCENE",
+        "AUTOMATIC",
+        "OBJECT",
+    }
+    # Almost every action has a dispatched handler with real provenance; the few
+    # that don't are the zero state and engine remap targets.
+    with_handler = [a for a in actions if a.handler]
+    assert len(with_handler) > 225
+    assert all(a.file and a.file.startswith("src/game/mario") for a in with_handler)
+    assert all(a.line and a.line >= 1 for a in with_handler)
+    # ACT_UNINITIALIZED is the zero state: no group, no flags, no handler.
+    uninit = next(a for a in actions if a.action_name == "ACT_UNINITIALIZED")
+    assert uninit.id == "0x00000000"
+    assert uninit.handler is None and uninit.group_name is None
+    assert uninit.flags_json == "[]"
+    # Packed flags decode from the 32-bit value.
+    gp = next(a for a in actions if a.action_name == "ACT_GROUND_POUND")
+    assert gp.group_name == "AIRBORNE" and "ATTACKING" in json.loads(gp.flags_json)
+    # ~1000 transition-setter call sites; every callee is one of the four setters.
+    assert len(calls) > 700
+    assert {c.call for c in calls} <= {
+        "set_mario_action",
+        "drop_and_set_mario_action",
+        "hurt_and_set_mario_action",
+        "set_jumping_action",
+    }
+    assert all(c.file.startswith("src/game/mario") and c.line >= 1 for c in calls)
+
+
+def test_mario_transitions_over_real_data(conn):
+    cur = conn.cursor()
+
+    def outs(action):
+        return {
+            row[0]
+            for row in cur.execute(
+                "SELECT to_action FROM mario_transition WHERE action_name = ?",
+                (action,),
+            ).fetchall()
+        }
+
+    # Ground-truth transitions verified against the source.
+    assert "ACT_JUMP" in outs("ACT_WALKING")
+    assert "ACT_GROUND_POUND" in outs("ACT_DOUBLE_JUMP")
+    assert "ACT_LEDGE_GRAB" in outs("ACT_LONG_JUMP")
+
+    # No dangling endpoints: both ends of every edge are real action nodes.
+    for col in ("action_name", "to_action"):
+        dangling = cur.execute(
+            f"SELECT COUNT(*) FROM mario_transition t "
+            f"LEFT JOIN mario_action a ON t.{col} = a.action_name "
+            f"WHERE a.action_name IS NULL"
+        ).fetchone()[0]
+        assert dangling == 0
+    # Every backbone row's source action joins the node table.
+    assert (
+        cur.execute(
+            "SELECT COUNT(*) FROM mario_action_call "
+            "WHERE action_name NOT IN (SELECT action_name FROM mario_action)"
+        ).fetchone()[0]
+        == 0
+    )
+
+    # A good few hundred distinct resolved edges (regression floor).
+    assert cur.execute("SELECT COUNT(*) FROM mario_transition").fetchone()[0] > 600
+
+    # ACT_FREEFALL is a sink hub: many actions can fall into it.
+    free_in = cur.execute(
+        "SELECT COUNT(DISTINCT action_name) FROM mario_transition "
+        "WHERE to_action = 'ACT_FREEFALL'"
+    ).fetchone()[0]
+    assert free_in > 30
+
+    # ACT_BEGIN_SLIDING is an engine remap target: transitioned TO, but it has no
+    # handler of its own (set_mario_action converts it to a concrete slide).
+    assert (
+        cur.execute(
+            "SELECT COUNT(*) FROM mario_transition WHERE to_action = 'ACT_BEGIN_SLIDING'"
+        ).fetchone()[0]
+        > 0
+    )
+    assert (
+        cur.execute(
+            "SELECT handler FROM mario_action WHERE action_name = 'ACT_BEGIN_SLIDING'"
+        ).fetchone()[0]
+        is None
+    )
+
+
+def test_mario_action_residue_is_visible(conn):
+    # Completeness audit: setter calls whose target is a computed/forwarded value
+    # (a landing table or a parameter) stay as visible residue, never silently
+    # dropped, and never overlap the resolved edges.
+    cur = conn.cursor()
+    residue = {
+        row[0]
+        for row in cur.execute(
+            "SELECT target FROM mario_action_call_unclassified"
+        ).fetchall()
+    }
+    assert residue
+    # The forwarded land/end/air-action locals we know are unresolved appear here.
+    assert any(t.endswith("Action") or "Action" in t for t in residue)
+    real_actions = {
+        row[0] for row in cur.execute("SELECT action_name FROM mario_action").fetchall()
+    }
+    assert not (residue & real_actions)
