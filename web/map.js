@@ -42,6 +42,17 @@ const POINTS_SQL = `
 let initialised = false;
 const hidden = new Set(); // kinds toggled off via the legend
 
+// Pan/zoom view transform, applied to the content group on top of the auto-fit.
+// Pan translates; wheel zooms about the cursor; double-click (or a new
+// level/area/plane) resets it. Identity == the fitted view.
+const view = { k: 1, tx: 0, ty: 0 };
+const viewTransform = () => `translate(${view.tx} ${view.ty}) scale(${view.k})`;
+function resetView() {
+  view.k = 1;
+  view.tx = 0;
+  view.ty = 0;
+}
+
 const m = {
   level: () => document.getElementById("map-level"),
   area: () => document.getElementById("map-area"),
@@ -187,6 +198,7 @@ function drawCamZones(svg, triggers, plane, sx, sy, scale) {
     rect.setAttribute("width", w.toFixed(1));
     rect.setAttribute("height", h.toFixed(1));
     rect.setAttribute("class", "cam-zone");
+    rect.setAttribute("vector-effect", "non-scaling-stroke");
     g.appendChild(rect);
 
     const label = document.createElementNS(SVG_NS, "text");
@@ -269,6 +281,12 @@ function render() {
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   while (svg.firstChild) svg.removeChild(svg.firstChild);
 
+  // Everything is drawn into one group so pan/zoom is just a transform on it.
+  const content = document.createElementNS(SVG_NS, "g");
+  content.setAttribute("id", "map-view");
+  content.setAttribute("transform", viewTransform());
+  svg.appendChild(content);
+
   m.status().textContent = `${pts.length} shown of ${all.length} placements`;
 
   // World extent of the view: the map image's world rectangle when shown (so
@@ -309,12 +327,12 @@ function render() {
     img.setAttribute("height", (rangeV * scale).toFixed(1));
     img.setAttribute("preserveAspectRatio", "none");
     img.setAttribute("opacity", "0.9");
-    svg.appendChild(img);
+    content.appendChild(img);
   }
 
   // Camera zones sit above the level image but below the object dots.
   if (showCam) {
-    drawCamZones(svg, camTriggers, plane, sx, sy, scale);
+    drawCamZones(content, camTriggers, plane, sx, sy, scale);
     const n = camTriggers.length;
     m.status().textContent += ` · ${n} camera zone${n === 1 ? "" : "s"}`;
   }
@@ -334,6 +352,7 @@ function render() {
     c.setAttribute("fill-opacity", "0.85");
     c.setAttribute("stroke", "#fff");
     c.setAttribute("stroke-width", "1");
+    c.setAttribute("vector-effect", "non-scaling-stroke");
     c.addEventListener("mouseenter", (e) => {
       tip.innerHTML =
         `<strong>${p.label || "(unnamed)"}</strong><br>` +
@@ -346,7 +365,77 @@ function render() {
       tip.style.top = e.clientY - r.top + 12 + "px";
     });
     c.addEventListener("mouseleave", () => (tip.style.display = "none"));
-    svg.appendChild(c);
+    content.appendChild(c);
+  });
+}
+
+// Pan (drag), zoom (wheel, anchored at the cursor) and reset (double-click) on
+// the map SVG, all by transforming the #map-view content group in place — no
+// re-query, no re-layout. Dot/box outlines use non-scaling-stroke so they stay
+// crisp at any zoom.
+function setupPanZoom(svg) {
+  const apply = () => {
+    const g = document.getElementById("map-view");
+    if (g) g.setAttribute("transform", viewTransform());
+  };
+  const at = (e) => {
+    const r = svg.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  svg.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const p = at(e);
+      const f = Math.exp(-e.deltaY * 0.0015); // scroll up -> zoom in
+      const k = Math.min(40, Math.max(0.25, view.k * f));
+      const ff = k / view.k;
+      view.tx = p.x - ff * (p.x - view.tx);
+      view.ty = p.y - ff * (p.y - view.ty);
+      view.k = k;
+      apply();
+    },
+    { passive: false }
+  );
+
+  let panning = false,
+    lastX = 0,
+    lastY = 0;
+  svg.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    panning = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    m.tip().style.display = "none";
+    svg.classList.add("panning");
+    try {
+      svg.setPointerCapture(e.pointerId);
+    } catch (_) {}
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (!panning) return;
+    view.tx += e.clientX - lastX;
+    view.ty += e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    apply();
+  });
+  const end = (e) => {
+    if (!panning) return;
+    panning = false;
+    svg.classList.remove("panning");
+    try {
+      svg.releasePointerCapture(e.pointerId);
+    } catch (_) {}
+  };
+  svg.addEventListener("pointerup", end);
+  svg.addEventListener("pointercancel", end);
+
+  svg.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    resetView();
+    apply();
   });
 }
 
@@ -363,14 +452,22 @@ function ensureInit() {
   });
   if (levels.includes("bob")) select.value = "bob";
   populateAreas(select.value);
+  // Changing what's shown re-fits the view, so drop any pan/zoom first; toggling
+  // camera zones doesn't change the extent, so it keeps the current view.
+  const refit = () => {
+    resetView();
+    render();
+  };
   select.addEventListener("change", () => {
     populateAreas(select.value);
-    render();
+    refit();
   });
-  m.area().addEventListener("change", render);
-  m.plane().addEventListener("change", render);
-  m.bg().addEventListener("change", render);
+  m.area().addEventListener("change", refit);
+  m.plane().addEventListener("change", refit);
+  m.bg().addEventListener("change", refit);
   m.cam().addEventListener("change", render);
+
+  setupPanZoom(m.svg());
 
   let resizeTimer = null;
   window.addEventListener("resize", () => {

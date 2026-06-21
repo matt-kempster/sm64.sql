@@ -397,7 +397,8 @@ tbody tr:hover { background: #fbfaf4; }
     var(--card);
   overflow: hidden;
 }
-#map-svg { display: block; }
+#map-svg { display: block; cursor: grab; touch-action: none; }
+#map-svg.panning { cursor: grabbing; }
 .map-tooltip {
   position: absolute;
   display: none;
