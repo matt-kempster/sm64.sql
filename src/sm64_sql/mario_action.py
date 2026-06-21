@@ -390,6 +390,38 @@ def _resolve_data_transitions(
 # value or a transition that is gated by a flag argument.
 _BIT_AND = re.compile(r"(\w+)\s*(?<!&)&(?!&)\s*([A-Za-z_]\w*)")
 
+# A guard on the *source action's* own flags: `m->action & ACT_FLAG_X` (the action
+# must have the flag) or `!(m->action & (A | B))` (it must have none of them). When
+# the guard is a necessary AND conjunct (no `||` in the condition), an action whose
+# decoded flags fail it can never run the transition, so the edge is refuted -- the
+# same idea as the argument-flag gate, read straight off mario_action.flags_json.
+_NEG_ACTION_FLAG = re.compile(r"!\s*\(\s*m->action\s*&\s*([^)]*)\)")
+_POS_ACTION_FLAG = re.compile(r"m->action\s*&\s*(\([^)]*\)|ACT_FLAG_[A-Z0-9_]+)")
+_ACT_FLAG_NAME = re.compile(r"ACT_FLAG_([A-Z0-9_]+)")
+
+
+def _action_flag_gate(condition: Optional[str], flags: Set[str]) -> Optional[str]:
+    """Return a reason if ``condition``'s ``m->action & ACT_FLAG_*`` guard makes the
+    transition impossible for an action with ``flags`` (else ``None``).
+
+    ``m->action`` at the guard is the source action's own value, so the test is a
+    static check against its decoded flags. Conservative: a ``||`` anywhere means
+    the flag test may not be a necessary conjunct, so we refute nothing.
+    """
+    if not condition or "||" in condition:
+        return None
+    # `!(m->action & (A | B))` -- the action must have NONE of A, B.
+    for neg in _NEG_ACTION_FLAG.finditer(condition):
+        names = _ACT_FLAG_NAME.findall(neg.group(1))
+        if names and (flags & set(names)):
+            return "!(" + " | ".join("ACT_FLAG_" + n for n in names) + ")"
+    # `m->action & (A | B)` -- the action must have AT LEAST ONE of A, B.
+    for pos in _POS_ACTION_FLAG.finditer(_NEG_ACTION_FLAG.sub("", condition)):
+        names = _ACT_FLAG_NAME.findall(pos.group(1))
+        if names and not (flags & set(names)):
+            return " | ".join("ACT_FLAG_" + n for n in names)
+    return None
+
 
 def _function_nodes(trees: List) -> Dict[str, Any]:
     """Map function name -> its function_definition node, across the given trees."""
@@ -610,6 +642,13 @@ def parse_mario_actions(repo: Path) -> ParsedMarioActions:
     func_nodes = _function_nodes(trees)
     refuted = _refuted_edges(repo, funcs, func_nodes, func_actions, action_names)
 
+    # Each action's own flags, to refute edges guarded by m->action & ACT_FLAG_*:
+    # a group-wide cancel like check_for_instant_quicksand only fires for
+    # invulnerable actions (m->action & ACT_FLAG_INVULNERABLE), so attributing it
+    # to the whole cutscene group over-connects ACT_QUICKSAND_DEATH. See
+    # _action_flag_gate.
+    action_flags = {n.action_name: set(json.loads(n.flags_json)) for n in nodes}
+
     # Emit one row per (action, transition-setter call site), stably ordered,
     # and collect the literal-at-site edges (so the data resolver below only adds
     # transitions the literal mario_transition view cannot already see).
@@ -627,6 +666,10 @@ def parse_mario_actions(repo: Path) -> ParsedMarioActions:
                 gated_by = (
                     refuted.get((action, name, target)) if target is not None else None
                 )
+                if gated_by is None and target in action_names:
+                    gated_by = _action_flag_gate(
+                        call.condition, action_flags.get(action, set())
+                    )
                 if target in action_names and gated_by is None:
                     literal_edges.add((action, target))
                 calls.append(

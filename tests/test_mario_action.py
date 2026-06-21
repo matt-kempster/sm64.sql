@@ -310,6 +310,99 @@ def test_dispatcher_cancel_is_attributed_group_wide(tmp_path: Path):
     assert not any(src == "ACT_DROWN" and tgt != "ACT_DROWN" for src, tgt in edges)
 
 
+# --- source-action-flag refutation (the over-connected QUICKSAND_DEATH class) --
+# A group cancel guarded by `m->action & ACT_FLAG_*` only fires for actions whose
+# own value carries that flag; attributing it group-wide over-connects the target.
+_SFLAG_HEADER = """\
+#define ACT_FLAG_INTANGIBLE   /* 0x00000800 */ (1 << 11)
+#define ACT_FLAG_INVULNERABLE /* 0x00002000 */ (1 << 13)
+#define ACT_TOUGH      0x00002001 // invulnerable
+#define ACT_GHOST      0x00000801 // intangible
+#define ACT_SOFT       0x00000001 // neither
+#define ACT_QUICKSAND  0x00000002 // target
+#define ACT_DROWN      0x00000004 // target
+"""
+
+_SFLAG_MARIO_C = """\
+u32 set_mario_action(struct MarioState *m, u32 action, u32 actionArg) {
+    m->action = action;
+    return TRUE;
+}
+"""
+
+_SFLAG_CUTSCENE_C = """\
+s32 check_for_quicksand(struct MarioState *m) {
+    if (m->floor->type == SURFACE_INSTANT_QUICKSAND && m->action & ACT_FLAG_INVULNERABLE) {
+        set_mario_action(m, ACT_QUICKSAND, 0);
+    }
+    return FALSE;
+}
+
+s32 check_drown(struct MarioState *m) {
+    if (m->health < 0x100 && !(m->action & (ACT_FLAG_INTANGIBLE | ACT_FLAG_INVULNERABLE))) {
+        set_mario_action(m, ACT_DROWN, 0);
+    }
+    return FALSE;
+}
+
+s32 act_tough(struct MarioState *m) { return FALSE; }
+s32 act_ghost(struct MarioState *m) { return FALSE; }
+s32 act_soft(struct MarioState *m) { return FALSE; }
+
+s32 mario_execute_cutscene_action(struct MarioState *m) {
+    s32 cancel;
+    if (check_for_quicksand(m)) {
+        return TRUE;
+    }
+    if (check_drown(m)) {
+        return TRUE;
+    }
+    switch (m->action) {
+        case ACT_TOUGH: cancel = act_tough(m); break;
+        case ACT_GHOST: cancel = act_ghost(m); break;
+        case ACT_SOFT:  cancel = act_soft(m);  break;
+    }
+    return cancel;
+}
+"""
+
+
+def _sflag_repo(tmp_path: Path) -> Path:
+    (tmp_path / "include").mkdir()
+    (tmp_path / "include" / "sm64.h").write_text(_SFLAG_HEADER)
+    game = tmp_path / "src" / "game"
+    game.mkdir(parents=True)
+    (game / "mario.c").write_text(_SFLAG_MARIO_C)
+    (game / "mario_actions_cutscene.c").write_text(_SFLAG_CUTSCENE_C)
+    return tmp_path
+
+
+def test_source_action_flag_refutes_group_cancel(tmp_path: Path):
+    parsed = parse_mario_actions(_sflag_repo(tmp_path))
+    names = {a.action_name for a in parsed.actions}
+    live = {(c.action_name, c.target) for c in parsed.calls if not c.gated_by}
+    gated = {(c.action_name, c.target): c.gated_by for c in parsed.calls if c.gated_by}
+
+    # Positive single flag: `m->action & ACT_FLAG_INVULNERABLE` keeps only TOUGH.
+    assert ("ACT_TOUGH", "ACT_QUICKSAND") in live
+    assert ("ACT_GHOST", "ACT_QUICKSAND") not in live
+    assert ("ACT_SOFT", "ACT_QUICKSAND") not in live
+    assert gated[("ACT_GHOST", "ACT_QUICKSAND")] == "ACT_FLAG_INVULNERABLE"
+
+    # Negated compound mask: `!(m->action & (INTANGIBLE | INVULNERABLE))` keeps
+    # only SOFT; TOUGH and GHOST each carry one of the masked flags.
+    assert ("ACT_SOFT", "ACT_DROWN") in live
+    assert ("ACT_TOUGH", "ACT_DROWN") not in live
+    assert ("ACT_GHOST", "ACT_DROWN") not in live
+    assert (
+        gated[("ACT_TOUGH", "ACT_DROWN")]
+        == "!(ACT_FLAG_INTANGIBLE | ACT_FLAG_INVULNERABLE)"
+    )
+
+    # Refuted rows stay on the backbone (auditable), targets are real actions.
+    assert "ACT_QUICKSAND" in names and "ACT_DROWN" in names
+
+
 def test_action_constants_decoded(tmp_path: Path):
     parsed = parse_mario_actions(_fake_repo(tmp_path))
     nodes = {a.action_name: a for a in parsed.actions}

@@ -208,7 +208,12 @@ ACT_*, arg)`. The same tree-sitter machinery mines the whole machine from
   under `arg & FLAG`) and refutes the edge for callers that don't pass the flag:
   the row keeps a `gated_by` flag, is dropped from `mario_transition`, and stays
   visible in `mario_transition_refuted`. (Jump and double-jump, which *do* pass
-  `AIR_STEP_CHECK_HANG`, keep their hang edge.)
+  `AIR_STEP_CHECK_HANG`, keep their hang edge.) The same refutation runs on a
+  **source-action flag**: a group cancel guarded by `m->action & ACT_FLAG_*` (e.g.
+  `check_for_instant_quicksand` needs `ACT_FLAG_INVULNERABLE`) only fires for
+  actions whose own decoded flags satisfy the guard, so the group-wide attribution
+  is trimmed to those — read straight off `mario_action.flags_json`, with `||`
+  conditions left alone as a conservative guard.
 
 Three views and a table expose the edges:
 
@@ -217,7 +222,7 @@ Three views and a table expose the edges:
 | `mario_transition` | literal-target edges (flag-refuted ones excluded) | `action_name`, `to_action` |
 | `mario_action_data_transition` | runtime targets resolved to a literal action | `action_name`, `to_action`, `source`, `function`, `file`, `line` |
 | `mario_all_transitions` | the dedup union of the two | `action_name`, `to_action` |
-| `mario_transition_refuted` | call-graph edges a flag argument disproves | `action_name`, `to_action`, `gated_by` |
+| `mario_transition_refuted` | call-graph edges a flag (an argument, or the source action's own `ACT_FLAG_*`) disproves | `action_name`, `to_action`, `gated_by` |
 
 `mario_action_data_transition` resolves the tractable runtime targets the same
 way `behavior_data_spawn` does: a forwarded land action

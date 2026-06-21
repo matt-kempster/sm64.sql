@@ -642,9 +642,14 @@ def test_mario_flag_gated_edges_refuted(conn):
     }
     assert ("ACT_BACKFLIP", "ACT_START_HANGING", "AIR_STEP_CHECK_HANG") in refuted
     assert ("ACT_BACKFLIP", "ACT_LEDGE_GRAB", "AIR_STEP_CHECK_LEDGE_GRAB") in refuted
-    # Every refuted edge has a real flag and real endpoints; none leak into the
-    # live transition graph.
-    assert refuted and all(g.startswith("AIR_STEP_CHECK_") for _, _, g in refuted)
+    # Every refuted edge names a non-empty reason; the hang/ledge ones specifically
+    # are arg-flag gated (AIR_STEP_CHECK_*). Source-action-flag refutations (e.g.
+    # ACT_FLAG_INVULNERABLE) also live here now -- see test_mario_source_flag_refutation.
+    assert refuted and all(g for _, _, g in refuted)
+    air = {
+        (a, t, g) for a, t, g in refuted if t in ("ACT_START_HANGING", "ACT_LEDGE_GRAB")
+    }
+    assert air and all(g.startswith("AIR_STEP_CHECK_") for _, _, g in air)
     live = {
         (r[0], r[1])
         for r in cur.execute(
@@ -673,6 +678,63 @@ def test_mario_group_cancel_entries(conn):
     assert in_degree("ACT_SQUISHED") > 50
     # ACT_VERTICAL_WIND is entered from the airborne group cancel.
     assert in_degree("ACT_VERTICAL_WIND") > 10
+
+
+def test_mario_source_flag_refutation(conn):
+    """A group cancel guarded by `m->action & ACT_FLAG_*` only fires for actions
+    whose own value carries the flag, so attributing it group-wide over-connects
+    the target. ACT_QUICKSAND_DEATH needs ACT_FLAG_INVULNERABLE."""
+    cur = conn.cursor()
+
+    def srcs(to_action):
+        return {
+            r[0]
+            for r in cur.execute(
+                "SELECT action_name FROM mario_all_transitions WHERE to_action = ?",
+                (to_action,),
+            ).fetchall()
+        }
+
+    flags = {
+        a: set(json.loads(f))
+        for a, f in cur.execute("SELECT action_name, flags_json FROM mario_action")
+    }
+    quicksand = srcs("ACT_QUICKSAND_DEATH")
+    # Every surviving quicksand-death source really is invulnerable...
+    assert quicksand and all("INVULNERABLE" in flags[a] for a in quicksand)
+    # ...and the inflated reach (cutscene/teleport/dialog actions) is gone.
+    assert "ACT_CREDITS_CUTSCENE" not in quicksand
+    assert in_degree_lt(cur, "ACT_QUICKSAND_DEATH", 25)
+
+    # The refuted edges stay visible with the flag they fail.
+    refuted = {
+        (r[0], r[1]): r[2]
+        for r in cur.execute(
+            "SELECT action_name, to_action, gated_by FROM mario_transition_refuted"
+        ).fetchall()
+    }
+    assert any(
+        t == "ACT_QUICKSAND_DEATH" and g == "ACT_FLAG_INVULNERABLE"
+        for (_, t), g in refuted.items()
+    )
+    # And none of them leak back into the live graph.
+    live = set(
+        cur.execute(
+            "SELECT action_name, to_action FROM mario_all_transitions"
+        ).fetchall()
+    )
+    assert not (set(refuted) & live)
+
+
+def in_degree_lt(cur, to_action, n):
+    return (
+        cur.execute(
+            "SELECT COUNT(DISTINCT action_name) FROM mario_all_transitions "
+            "WHERE to_action = ?",
+            (to_action,),
+        ).fetchone()[0]
+        < n
+    )
 
 
 def test_mario_action_residue_is_visible(conn):
