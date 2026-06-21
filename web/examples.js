@@ -56,6 +56,17 @@ WHERE action_name = 'ACT_JUMP'
 ORDER BY to_action;`,
   },
   {
+    title: "Impossible transitions the call graph implies",
+    sql: `-- A backflip reaches set_mario_action(ACT_START_HANGING) in the shared
+-- helper common_air_action_step, but only callers that pass AIR_STEP_CHECK_HANG
+-- can actually grab a ceiling -- and backflip passes 0. The parser refutes these
+-- flag-gated edges: dropped from mario_transition, kept here with the flag they'd
+-- need. (Jump/double-jump, which DO pass the flag, are absent -- their edge is real.)
+SELECT action_name, to_action, gated_by
+FROM mario_transition_refuted
+ORDER BY to_action, action_name;`,
+  },
+  {
     title: "Action hubs (most-entered states)",
     sql: `-- Which actions the most other actions can transition into -- the sinks
 -- of the state machine (landing, falling, idling).

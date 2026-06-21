@@ -95,6 +95,14 @@ def function_name(node) -> Optional[str]:
     return declarator.text.decode() if declarator is not None else None
 
 
+def iter_nodes(node, node_type: str):
+    """Yield every descendant of ``node`` (and ``node`` itself) of ``node_type``."""
+    if node.type == node_type:
+        yield node
+    for child in node.children:
+        yield from iter_nodes(child, node_type)
+
+
 def function_params(node) -> List[Optional[str]]:
     """Return a function_definition's parameter names (None for an unnamed one).
 

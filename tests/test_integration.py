@@ -598,6 +598,62 @@ def test_mario_transitions_over_real_data(conn):
     )
 
 
+def test_mario_flag_gated_edges_refuted(conn):
+    """Air actions reach common_air_action_step's ceiling/ledge cases in the call
+    graph, but only callers that pass the stepArg flag can actually trigger them.
+    The flag-gating analysis must drop the impossible edges and keep the real."""
+    cur = conn.cursor()
+
+    def into(to_action):
+        return {
+            row[0]
+            for row in cur.execute(
+                "SELECT action_name FROM mario_transition WHERE to_action = ?",
+                (to_action,),
+            ).fetchall()
+        }
+
+    hang = into("ACT_START_HANGING")
+    ledge = into("ACT_LEDGE_GRAB")
+    # Only the two air actions that pass AIR_STEP_CHECK_HANG can start hanging.
+    assert "ACT_JUMP" in hang and "ACT_DOUBLE_JUMP" in hang
+    # The classic false positives are gone (backflip/sideflip/etc. pass no HANG).
+    for impossible in (
+        "ACT_BACKFLIP",
+        "ACT_SIDE_FLIP",
+        "ACT_TRIPLE_JUMP",
+        "ACT_LONG_JUMP",
+        "ACT_FREEFALL",
+        "ACT_WALL_KICK_AIR",
+    ):
+        assert impossible not in hang
+    # Ledge grab survives where AIR_STEP_CHECK_LEDGE_GRAB is passed, and is
+    # refuted for the two stepArg-0 callers (triple jump, backflip).
+    assert {"ACT_LONG_JUMP", "ACT_SIDE_FLIP", "ACT_WATER_JUMP"} <= ledge
+    assert "ACT_BACKFLIP" not in ledge and "ACT_TRIPLE_JUMP" not in ledge
+
+    # The refuted edges are not silently dropped: they stay on the backbone with
+    # the flag that would be required, surfaced by mario_transition_refuted.
+    refuted = {
+        (r[0], r[1], r[2])
+        for r in cur.execute(
+            "SELECT action_name, to_action, gated_by FROM mario_transition_refuted"
+        ).fetchall()
+    }
+    assert ("ACT_BACKFLIP", "ACT_START_HANGING", "AIR_STEP_CHECK_HANG") in refuted
+    assert ("ACT_BACKFLIP", "ACT_LEDGE_GRAB", "AIR_STEP_CHECK_LEDGE_GRAB") in refuted
+    # Every refuted edge has a real flag and real endpoints; none leak into the
+    # live transition graph.
+    assert refuted and all(g.startswith("AIR_STEP_CHECK_") for _, _, g in refuted)
+    live = {
+        (r[0], r[1])
+        for r in cur.execute(
+            "SELECT action_name, to_action FROM mario_all_transitions"
+        ).fetchall()
+    }
+    assert not any((a, t) in live for a, t, _ in refuted)
+
+
 def test_mario_action_residue_is_visible(conn):
     # Completeness audit: setter calls whose target is a computed/forwarded value
     # (a landing table or a parameter) stay as visible residue, never silently

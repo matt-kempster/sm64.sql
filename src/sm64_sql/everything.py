@@ -503,6 +503,22 @@ ENTITY_VIEWS: List[Tuple[str, str]] = [
         SELECT DISTINCT action_name, target AS to_action
         FROM mario_action_call
         WHERE target IN (SELECT action_name FROM mario_action)
+          AND gated_by IS NULL
+        """,
+    ),
+    # Refutation audit: literal edges the call graph reaches but a flag argument
+    # disproves -- a transition inside a flag-gated switch case (e.g.
+    # set_mario_action(ACT_START_HANGING) under case AIR_STEP_GRABBED_CEILING)
+    # attributed to a source whose handler never passes the gating flag
+    # (AIR_STEP_CHECK_HANG). Excluded from mario_transition; kept here, visible.
+    (
+        "mario_transition_refuted",
+        """
+        CREATE VIEW mario_transition_refuted AS
+        SELECT DISTINCT action_name, target AS to_action, gated_by
+        FROM mario_action_call
+        WHERE gated_by IS NOT NULL
+        ORDER BY to_action, action_name
         """,
     ),
     # Completeness audit: setter calls whose target is NOT a literal action -- a

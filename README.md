@@ -9,7 +9,7 @@ reads those source files and writes the equivalent rows into a SQLite database,
 so questions like "which objects appear only in act 1?", "what music plays in
 each course?", or "where does each painting warp to?" become one-line queries.
 
-It currently populates 30 tables (plus 16 derived views) spanning placed
+It currently populates 30 tables (plus 17 derived views) spanning placed
 objects, models and per-level model loads, behaviors and their command scripts
 and native C code, levels/courses/areas, warps, camera-trigger zones, dialog,
 music, animations, sounds, the in-game course and star names, and the named
@@ -193,14 +193,25 @@ ACT_*, arg)`. The same tree-sitter machinery mines the whole machine from
   also records its **trigger** — the nearest enclosing `if`-guard
   (`m->input & INPUT_Z_PRESSED`, `m->forwardVel >= 38.0f`), negated for an `else`
   branch — which is what the Actions tab labels each arrow with.
+- **Flag-gated refutation.** Some transitions sit inside a shared helper's
+  `switch` on a flag-gated result — `common_air_action_step` sets `ACT_START_HANGING`
+  under `case AIR_STEP_GRABBED_CEILING`, which `perform_air_step` only returns when
+  the caller passed `AIR_STEP_CHECK_HANG`. The call graph alone attributes that to
+  *every* air action, so a backflip falsely appears to reach hanging. The parser
+  discovers the `result → flag` contract from the code (a constant returned only
+  under `arg & FLAG`) and refutes the edge for callers that don't pass the flag:
+  the row keeps a `gated_by` flag, is dropped from `mario_transition`, and stays
+  visible in `mario_transition_refuted`. (Jump and double-jump, which *do* pass
+  `AIR_STEP_CHECK_HANG`, keep their hang edge.)
 
-Two views and a table expose the edges:
+Three views and a table expose the edges:
 
 | View / table | Holds | Columns |
 | --- | --- | --- |
-| `mario_transition` | literal-target edges | `action_name`, `to_action` |
+| `mario_transition` | literal-target edges (flag-refuted ones excluded) | `action_name`, `to_action` |
 | `mario_action_data_transition` | runtime targets resolved to a literal action | `action_name`, `to_action`, `source`, `function`, `file`, `line` |
 | `mario_all_transitions` | the dedup union of the two | `action_name`, `to_action` |
+| `mario_transition_refuted` | call-graph edges a flag argument disproves | `action_name`, `to_action`, `gated_by` |
 
 `mario_action_data_transition` resolves the tractable runtime targets the same
 way `behavior_data_spawn` does: a forwarded land action
@@ -431,7 +442,7 @@ mypy                   # type-check
 
 ## Status & limitations
 
-30 tables (plus 16 views) are populated from a full current `n64decomp/sm64`
+30 tables (plus 17 views) are populated from a full current `n64decomp/sm64`
 checkout: placed objects, macro objects and special objects; models and
 per-level model loads, behaviors and their command scripts and native C code,
 macro/special presets; levels, courses and areas; warps and instant warps;

@@ -32,14 +32,16 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sm64_sql.c_parse import (
     Func,
     collect_calls,
     find_descendant,
     function_name,
+    function_params,
     functions_from_tree,
+    iter_nodes,
     parse_tree,
     reachable,
 )
@@ -57,6 +59,11 @@ MARIO_FILES = (
     "mario_actions_automatic.c",
     "mario_actions_object.c",
 )
+# Shared step helpers whose *return value* is gated by an argument flag (e.g.
+# perform_air_step returns AIR_STEP_GRABBED_CEILING only when the caller's
+# stepArg has AIR_STEP_CHECK_HANG). Scanned only to learn that flag->result
+# contract; not added to the reachability walk.
+MARIO_STEP_FILES = ("mario_step.c",)
 
 # Setters that take the destination action as an explicit argument (index 1 --
 # after the MarioState* receiver). These are the leaf transition vocabulary:
@@ -127,6 +134,7 @@ class SM64MarioActionCall:
     args_json: str  # JSON array of the top-level arguments
     file: str  # repo-relative path of the definition (clickable provenance)
     line: int  # 1-based line of the call site
+    gated_by: Optional[str] = None  # flag the source never passes -> edge refuted
 
 
 @dataclass
@@ -343,6 +351,156 @@ def _resolve_data_transitions(
     return sorted(rows, key=lambda r: (r.action_name, r.to_action))
 
 
+# A bitwise-AND test `arg & FLAG` (not the logical `&&`), used to spot a return
+# value or a transition that is gated by a flag argument.
+_BIT_AND = re.compile(r"(\w+)\s*(?<!&)&(?!&)\s*([A-Za-z_]\w*)")
+
+
+def _function_nodes(trees: List) -> Dict[str, Any]:
+    """Map function name -> its function_definition node, across the given trees."""
+    nodes: Dict[str, Any] = {}
+    for tree in trees:
+        for fn_node in iter_nodes(tree.root_node, "function_definition"):
+            name = function_name(fn_node)
+            if name is not None:
+                nodes.setdefault(name, fn_node)
+    return nodes
+
+
+def _enclosing_param_flag(node, params: Set[str]) -> Optional[str]:
+    """If ``node`` only runs under an ``if (param & FLAG)``, return ``FLAG``.
+
+    Walks the enclosing ``if`` conditions up to the function boundary, looking for
+    a bitwise-AND of one of the function's parameters with an UPPER_CASE macro --
+    i.e. the run is gated by a flag the caller passed in.
+    """
+    cur = node.parent
+    while cur is not None and cur.type != "function_definition":
+        if cur.type == "if_statement":
+            cond = cur.child_by_field_name("condition")
+            if cond is not None:
+                for a, b in _BIT_AND.findall(cond.text.decode()):
+                    if a in params and b.isupper():
+                        return b
+                    if b in params and a.isupper():
+                        return a
+        cur = cur.parent
+    return None
+
+
+def _return_gate_map(repo: Path) -> Dict[str, str]:
+    """Discover, from the code, which returned constants are gated by which flag.
+
+    A constant is "flag-gated" only if *every* ``return CONST;`` runs under
+    ``if (param & FLAG)`` for the *same* ``FLAG`` -- i.e. the result is impossible
+    unless the caller passed that flag. In vanilla this finds
+    ``AIR_STEP_GRABBED_CEILING -> AIR_STEP_CHECK_HANG`` and
+    ``AIR_STEP_GRABBED_LEDGE -> AIR_STEP_CHECK_LEDGE_GRAB`` -- the contract behind
+    the false hang/ledge edges -- without hardcoding those names. A result also
+    returned ungated (like ``AIR_STEP_NONE``) is correctly *not* gated.
+    """
+    game_dir = repo.joinpath(*MARIO_SUBDIR)
+    const_re = re.compile(r"^[A-Z][A-Z0-9_]+$")
+    seen: Dict[str, Set[Optional[str]]] = {}
+    for filename in (*MARIO_FILES, *MARIO_STEP_FILES):
+        path = game_dir / filename
+        if not path.is_file():
+            continue
+        tree = parse_tree(path, strip_conditionals=True)
+        for fn_node in iter_nodes(tree.root_node, "function_definition"):
+            params = {p for p in function_params(fn_node) if p}
+            body = fn_node.child_by_field_name("body")
+            if not params or body is None:
+                continue
+            for ret in iter_nodes(body, "return_statement"):
+                val = next((c for c in ret.named_children if c.type != "comment"), None)
+                if val is None or not const_re.match(val.text.decode().strip()):
+                    continue
+                seen.setdefault(val.text.decode().strip(), set()).add(
+                    _enclosing_param_flag(ret, params)
+                )
+    gate: Dict[str, str] = {}
+    for const, flags in seen.items():
+        if len(flags) == 1 and None not in flags:
+            flag = next(iter(flags))
+            if flag is not None:
+                gate[const] = flag
+    return gate
+
+
+def _refuted_edges(
+    repo: Path,
+    funcs: Dict[str, Func],
+    func_nodes: Dict[str, Any],
+    func_actions: Dict[str, Set[str]],
+    action_names: Set[str],
+) -> Dict[Tuple[str, str, str], str]:
+    """Find literal transitions the call graph reaches but a flag never enables.
+
+    A transition set inside ``switch (r) { case CONST: set_mario_action(ACT_X) }``
+    where ``CONST`` is only returned under ``arg & FLAG`` (see ``_return_gate_map``)
+    can only fire if the helper is *called with* ``FLAG``. The call graph alone
+    attributes the literal to every caller; here we refute it for callers that do
+    not pass ``FLAG``. Returns ``{(source_action, helper_function, ACT_X): FLAG}``
+    for each refuted edge -- e.g. ``(ACT_BACKFLIP, common_air_action_step,
+    ACT_START_HANGING): AIR_STEP_CHECK_HANG`` (backflip passes stepArg 0, so it
+    can never grab a ceiling). A helper that passes the flag itself (a
+    self-contained handler like ``act_water_jump``) satisfies it for everyone.
+    """
+    gate_map = _return_gate_map(repo)
+    if not gate_map:
+        return {}
+
+    callers: Dict[str, List[Tuple[str, List[str]]]] = {}
+    for fn in funcs.values():
+        for call in fn.calls:
+            callers.setdefault(call.callee, []).append((fn.name, call.args))
+
+    refuted: Dict[Tuple[str, str, str], str] = {}
+    for hname, sources in func_actions.items():
+        fn_node = func_nodes.get(hname)
+        body = fn_node.child_by_field_name("body") if fn_node is not None else None
+        if body is None:
+            continue
+        body_text = body.text.decode()
+        for switch in iter_nodes(body, "switch_statement"):
+            sbody = switch.child_by_field_name("body")
+            if sbody is None:
+                continue
+            for case in sbody.named_children:
+                if case.type != "case_statement":
+                    continue
+                value = case.child_by_field_name("value")
+                if value is None:
+                    continue
+                flag = gate_map.get(value.text.decode().strip())
+                if flag is None:
+                    continue
+                targets = {
+                    call.args[_ACTION_ARG]
+                    for call in collect_calls(case)
+                    if call.callee in TRANSITION_SETTERS
+                    and len(call.args) > _ACTION_ARG
+                    and call.args[_ACTION_ARG] in action_names
+                }
+                if not targets:
+                    continue
+                flag_re = re.compile(rf"\b{re.escape(flag)}\b")
+                # The helper passes the flag itself -> reachable for all sources.
+                if flag_re.search(body_text):
+                    continue
+                # Forwarded flag: only callers that pass it can reach the case.
+                valid: Set[str] = set()
+                for caller, cargs in callers.get(hname, ()):
+                    if any(flag_re.search(a) for a in cargs):
+                        valid |= func_actions.get(caller, set())
+                for to_action in targets:
+                    for src in sources:
+                        if src not in valid:
+                            refuted[(src, hname, to_action)] = flag
+    return refuted
+
+
 def parse_mario_actions(repo: Path) -> ParsedMarioActions:
     """Build the mario_action nodes and the mario_action_call edge backbone."""
     header_file = repo / "include" / "sm64.h"
@@ -390,6 +548,14 @@ def parse_mario_actions(repo: Path) -> ParsedMarioActions:
         for reached in reachable(handler, funcs, recursion_set):
             func_actions.setdefault(reached, set()).add(action)
 
+    # Refute call-graph edges a flag argument disproves: a literal transition
+    # inside a flag-gated switch case (e.g. set_mario_action(ACT_START_HANGING)
+    # under case AIR_STEP_GRABBED_CEILING) is only real for callers that pass the
+    # gating flag (AIR_STEP_CHECK_HANG). The rest are tagged on the backbone and
+    # dropped from mario_transition; see _refuted_edges.
+    func_nodes = _function_nodes(trees)
+    refuted = _refuted_edges(repo, funcs, func_nodes, func_actions, action_names)
+
     # Emit one row per (action, transition-setter call site), stably ordered,
     # and collect the literal-at-site edges (so the data resolver below only adds
     # transitions the literal mario_transition view cannot already see).
@@ -404,7 +570,10 @@ def parse_mario_actions(repo: Path) -> ParsedMarioActions:
                 target = (
                     call.args[_ACTION_ARG] if len(call.args) > _ACTION_ARG else None
                 )
-                if target in action_names:
+                gated_by = (
+                    refuted.get((action, name, target)) if target is not None else None
+                )
+                if target in action_names and gated_by is None:
                     literal_edges.add((action, target))
                 calls.append(
                     SM64MarioActionCall(
@@ -418,6 +587,7 @@ def parse_mario_actions(repo: Path) -> ParsedMarioActions:
                         args_json=json.dumps(call.args),
                         file=fn.file,
                         line=call.line,
+                        gated_by=gated_by,
                     )
                 )
 

@@ -106,6 +106,133 @@ def _fake_repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
+# --- flag-gated transitions (the backflip -> hanging false-edge class) ---------
+# perform_air_step returns AIR_STEP_GRABBED_CEILING only when the caller passes
+# AIR_STEP_CHECK_HANG, and AIR_STEP_GRABBED_LEDGE only with
+# AIR_STEP_CHECK_LEDGE_GRAB. common_air_action_step switches on that result, so
+# its ceiling/ledge transitions are only real for callers that pass the flag.
+_GATE_HEADER = """\
+#define ACT_GROUP_MASK     0x000001C0
+#define ACT_GROUP_AIRBORNE /* 0x00000080 */ (2 << 6)
+#define ACT_FLAG_AIR       /* 0x00000800 */ (1 << 11)
+#define ACT_HANG      0x00000880 // airborne
+#define ACT_LEDGE     0x00000881 // airborne
+#define ACT_LAND      0x00000882 // airborne
+#define ACT_FLAGGED   0x00000883 // airborne (passes both flags)
+#define ACT_PLAIN     0x00000884 // airborne (passes no flags)
+#define ACT_SELF      0x00000885 // airborne (passes the flag itself)
+"""
+
+_GATE_MARIO_C = """\
+u32 set_mario_action(struct MarioState *m, u32 action, u32 actionArg) {
+    m->action = action;
+    return TRUE;
+}
+"""
+
+_GATE_STEP_C = """\
+u32 perform_air_step(struct MarioState *m, u32 stepArg) {
+    if ((stepArg & AIR_STEP_CHECK_HANG) && m->ceil != NULL) {
+        return AIR_STEP_GRABBED_CEILING;
+    }
+    if ((stepArg & AIR_STEP_CHECK_LEDGE_GRAB) && m->wall != NULL) {
+        return AIR_STEP_GRABBED_LEDGE;
+    }
+    return AIR_STEP_NONE;
+}
+"""
+
+_GATE_AIRBORNE_C = """\
+u32 common_air_action_step(struct MarioState *m, u32 landAction, u32 stepArg) {
+    switch (perform_air_step(m, stepArg)) {
+        case AIR_STEP_LANDED:
+            set_mario_action(m, landAction, 0);
+            break;
+        case AIR_STEP_GRABBED_LEDGE:
+            set_mario_action(m, ACT_LEDGE, 0);
+            break;
+        case AIR_STEP_GRABBED_CEILING:
+            set_mario_action(m, ACT_HANG, 0);
+            break;
+    }
+    return 0;
+}
+
+s32 act_flagged(struct MarioState *m) {
+    common_air_action_step(m, ACT_LAND, AIR_STEP_CHECK_LEDGE_GRAB | AIR_STEP_CHECK_HANG);
+    return FALSE;
+}
+
+s32 act_plain(struct MarioState *m) {
+    common_air_action_step(m, ACT_LAND, 0);
+    return FALSE;
+}
+
+s32 act_self(struct MarioState *m) {
+    switch (perform_air_step(m, AIR_STEP_CHECK_LEDGE_GRAB)) {
+        case AIR_STEP_GRABBED_LEDGE:
+            set_mario_action(m, ACT_LEDGE, 0);
+            break;
+    }
+    return FALSE;
+}
+
+s32 mario_execute_airborne_action(struct MarioState *m) {
+    s32 cancel;
+    switch (m->action) {
+        case ACT_FLAGGED: cancel = act_flagged(m); break;
+        case ACT_PLAIN:   cancel = act_plain(m);   break;
+        case ACT_SELF:    cancel = act_self(m);    break;
+    }
+    return cancel;
+}
+"""
+
+
+def _gate_repo(tmp_path: Path) -> Path:
+    (tmp_path / "include").mkdir()
+    (tmp_path / "include" / "sm64.h").write_text(_GATE_HEADER)
+    game = tmp_path / "src" / "game"
+    game.mkdir(parents=True)
+    (game / "mario.c").write_text(_GATE_MARIO_C)
+    (game / "mario_actions_airborne.c").write_text(_GATE_AIRBORNE_C)
+    (game / "mario_step.c").write_text(_GATE_STEP_C)
+    return tmp_path
+
+
+def test_flag_gated_transition_refuted_and_kept(tmp_path: Path):
+    from sm64_sql.mario_action import _return_gate_map
+
+    repo = _gate_repo(tmp_path)
+    # The gate contract is discovered from the code, not hardcoded; AIR_STEP_NONE
+    # is also returned ungated, so it is correctly NOT treated as gated.
+    assert _return_gate_map(repo) == {
+        "AIR_STEP_GRABBED_CEILING": "AIR_STEP_CHECK_HANG",
+        "AIR_STEP_GRABBED_LEDGE": "AIR_STEP_CHECK_LEDGE_GRAB",
+    }
+
+    parsed = parse_mario_actions(repo)
+    names = {a.action_name for a in parsed.actions}
+    live = {(c.action_name, c.target) for c in parsed.calls if not c.gated_by}
+    gated = {(c.action_name, c.target): c.gated_by for c in parsed.calls if c.gated_by}
+
+    # The caller that passes the flags reaches both gated cases.
+    assert ("ACT_FLAGGED", "ACT_HANG") in live
+    assert ("ACT_FLAGGED", "ACT_LEDGE") in live
+    # The caller that passes neither is refuted on both -- the false edges.
+    assert ("ACT_PLAIN", "ACT_HANG") not in live
+    assert ("ACT_PLAIN", "ACT_LEDGE") not in live
+    assert gated[("ACT_PLAIN", "ACT_HANG")] == "AIR_STEP_CHECK_HANG"
+    assert gated[("ACT_PLAIN", "ACT_LEDGE")] == "AIR_STEP_CHECK_LEDGE_GRAB"
+    # A handler that passes the flag itself (no forwarding) keeps its edge.
+    assert ("ACT_SELF", "ACT_LEDGE") in live
+    # Refuted rows stay on the backbone (auditable), with a literal target.
+    assert ("ACT_PLAIN", "ACT_HANG") in {
+        (c.action_name, c.target) for c in parsed.calls
+    }
+    assert "ACT_HANG" in names
+
+
 def test_action_constants_decoded(tmp_path: Path):
     parsed = parse_mario_actions(_fake_repo(tmp_path))
     nodes = {a.action_name: a for a in parsed.actions}
