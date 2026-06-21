@@ -654,6 +654,27 @@ def test_mario_flag_gated_edges_refuted(conn):
     assert not any((a, t) in live for a, t, _ in refuted)
 
 
+def test_mario_group_cancel_entries(conn):
+    """Dispatcher-level cancels (check_common_*_cancels) run before the switch, so
+    their transitions belong to the whole group. Without that, ACT_DROWNING and
+    ACT_SQUISHED had no incoming edge at all."""
+    cur = conn.cursor()
+
+    def in_degree(to_action):
+        return cur.execute(
+            "SELECT COUNT(DISTINCT action_name) FROM mario_all_transitions "
+            "WHERE to_action = ?",
+            (to_action,),
+        ).fetchone()[0]
+
+    # ACT_DROWNING is reachable from many submerged actions (group cancel).
+    assert in_degree("ACT_DROWNING") > 10
+    # ACT_SQUISHED applies across nearly every grounded/airborne action.
+    assert in_degree("ACT_SQUISHED") > 50
+    # ACT_VERTICAL_WIND is entered from the airborne group cancel.
+    assert in_degree("ACT_VERTICAL_WIND") > 10
+
+
 def test_mario_action_residue_is_visible(conn):
     # Completeness audit: setter calls whose target is a computed/forwarded value
     # (a landing table or a parameter) stay as visible residue, never silently

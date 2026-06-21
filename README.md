@@ -193,6 +193,12 @@ ACT_*, arg)`. The same tree-sitter machinery mines the whole machine from
   also records its **trigger** — the nearest enclosing `if`-guard
   (`m->input & INPUT_Z_PRESSED`, `m->forwardVel >= 38.0f`), negated for an `else`
   branch — which is what the Actions tab labels each arrow with.
+- **Group-wide cancels.** Each per-group dispatcher `mario_execute_*_action` runs
+  `check_common_*_cancels` *before* its switch, so those transitions apply to
+  every action in the group, not to one handler — without this, `ACT_DROWNING`,
+  `ACT_SQUISHED`, and `ACT_VERTICAL_WIND` had no incoming edge at all. The walk
+  also starts from each dispatcher (treating the handlers as leaves) and
+  attributes that ambient code to the whole group.
 - **Flag-gated refutation.** Some transitions sit inside a shared helper's
   `switch` on a flag-gated result — `common_air_action_step` sets `ACT_START_HANGING`
   under `case AIR_STEP_GRABBED_CEILING`, which `perform_air_step` only returns when

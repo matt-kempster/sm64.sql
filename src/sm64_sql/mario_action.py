@@ -268,6 +268,41 @@ def _dispatch_handlers(trees: List) -> Dict[str, str]:
     return handlers
 
 
+def _dispatcher_groups(trees: List) -> Dict[str, Set[str]]:
+    """Map each mario_execute_*_action dispatcher to the ACT_* it dispatches.
+
+    The dispatcher's switch labels are the whole group of actions that run that
+    dispatcher's shared pre-switch cancels (check_common_*_cancels), so a cancel's
+    transitions belong to every one of these actions.
+    """
+    groups: Dict[str, Set[str]] = {}
+
+    def visit(node) -> None:
+        if node.type == "function_definition":
+            name = function_name(node)
+            if name and name.startswith("mario_execute_") and name.endswith("_action"):
+                labels: Set[str] = set()
+                switch = find_descendant(node, "switch_statement")
+                body = (
+                    switch.child_by_field_name("body") if switch is not None else None
+                )
+                if body is not None:
+                    for case in body.named_children:
+                        if case.type != "case_statement":
+                            continue
+                        value = case.child_by_field_name("value")
+                        if value is not None and value.text.decode().startswith("ACT_"):
+                            labels.add(value.text.decode())
+                groups[name] = labels
+            return  # C has no nested function definitions
+        for child in node.children:
+            visit(child)
+
+    for tree in trees:
+        visit(tree.root_node)
+    return groups
+
+
 def _resolve_data_transitions(
     funcs: Dict[str, Func],
     func_actions: Dict[str, Set[str]],
@@ -547,6 +582,25 @@ def parse_mario_actions(repo: Path) -> ParsedMarioActions:
             continue
         for reached in reachable(handler, funcs, recursion_set):
             func_actions.setdefault(reached, set()).add(action)
+
+    # Group-wide cancels: each per-group dispatcher mario_execute_*_action runs
+    # check_common_*_cancels (and a couple of fixed-target helpers) BEFORE its
+    # switch, so those transitions apply to every action in the group rather than
+    # one handler -- the handler walk above starts at handlers and never reaches
+    # them, leaving ACT_DROWNING / ACT_SQUISHED / ACT_VERTICAL_WIND with no
+    # incoming edge. Walk from each dispatcher with the handlers treated as leaves
+    # (so only the ambient pre/post-switch code is reached) and attribute it to
+    # the whole group.
+    handler_fns = set(handlers.values())
+    ambient_set = recursion_set - handler_fns
+    for dispatcher, labels in _dispatcher_groups(trees).items():
+        if dispatcher not in funcs:
+            continue
+        group = {a for a in labels if a in action_names}
+        if not group:
+            continue
+        for reached in reachable(dispatcher, funcs, ambient_set):
+            func_actions.setdefault(reached, set()).update(group)
 
     # Refute call-graph edges a flag argument disproves: a literal transition
     # inside a flag-gated switch case (e.g. set_mario_action(ACT_START_HANGING)

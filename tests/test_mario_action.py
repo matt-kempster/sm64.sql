@@ -233,6 +233,83 @@ def test_flag_gated_transition_refuted_and_kept(tmp_path: Path):
     assert "ACT_HANG" in names
 
 
+# --- dispatcher-level group cancels (the ACT_DROWNING orphan class) -----------
+# A per-group dispatcher runs check_common_*_cancels BEFORE its switch, so those
+# transitions apply to every action in the group, not to one handler.
+_CANCEL_HEADER = """\
+#define ACT_GROUP_MASK      0x000001C0
+#define ACT_GROUP_SUBMERGED /* 0x000000C0 */ (3 << 6)
+#define ACT_SWIM      0x000000C0 // submerged
+#define ACT_FLUTTER   0x000000C1 // submerged
+#define ACT_DROWN     0x300000C2 // submerged
+"""
+
+_CANCEL_MARIO_C = """\
+u32 set_mario_action(struct MarioState *m, u32 action, u32 actionArg) {
+    m->action = action;
+    return TRUE;
+}
+"""
+
+_CANCEL_SUBMERGED_C = """\
+s32 check_common_submerged_cancels(struct MarioState *m) {
+    if (m->pos[1] > m->waterLevel - 80) {
+        set_mario_action(m, ACT_DROWN, 0);
+    }
+    return FALSE;
+}
+
+s32 act_swim(struct MarioState *m) {
+    return FALSE;
+}
+
+s32 act_flutter(struct MarioState *m) {
+    return FALSE;
+}
+
+s32 act_drown(struct MarioState *m) {
+    return FALSE;
+}
+
+s32 mario_execute_submerged_action(struct MarioState *m) {
+    s32 cancel;
+    if (check_common_submerged_cancels(m)) {
+        return TRUE;
+    }
+    switch (m->action) {
+        case ACT_SWIM:    cancel = act_swim(m);    break;
+        case ACT_FLUTTER: cancel = act_flutter(m); break;
+        case ACT_DROWN:   cancel = act_drown(m);   break;
+    }
+    return cancel;
+}
+"""
+
+
+def _cancel_repo(tmp_path: Path) -> Path:
+    (tmp_path / "include").mkdir()
+    (tmp_path / "include" / "sm64.h").write_text(_CANCEL_HEADER)
+    game = tmp_path / "src" / "game"
+    game.mkdir(parents=True)
+    (game / "mario.c").write_text(_CANCEL_MARIO_C)
+    (game / "mario_actions_submerged.c").write_text(_CANCEL_SUBMERGED_C)
+    return tmp_path
+
+
+def test_dispatcher_cancel_is_attributed_group_wide(tmp_path: Path):
+    parsed = parse_mario_actions(_cancel_repo(tmp_path))
+    names = {a.action_name for a in parsed.actions}
+    edges = {(c.action_name, c.target) for c in parsed.calls if c.target in names}
+    # The cancel runs in the dispatcher before the switch, so every dispatched
+    # action -- not just one handler -- can transition to ACT_DROWN, including
+    # ACT_DROWN itself (it stays submerged until the water level drops).
+    assert ("ACT_SWIM", "ACT_DROWN") in edges
+    assert ("ACT_FLUTTER", "ACT_DROWN") in edges
+    assert ("ACT_DROWN", "ACT_DROWN") in edges
+    # The empty drowning handler emits nothing of its own.
+    assert not any(src == "ACT_DROWN" and tgt != "ACT_DROWN" for src, tgt in edges)
+
+
 def test_action_constants_decoded(tmp_path: Path):
     parsed = parse_mario_actions(_fake_repo(tmp_path))
     nodes = {a.action_name: a for a in parsed.actions}
